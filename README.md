@@ -1,0 +1,114 @@
+# 人生手帳（jinsei-techo）
+
+日々の日記と、人生で大事にしたい学びや思考を記録するための、あなた専用のiPhone向けPWAです。
+
+- 📔 日記：毎日の記録（日付・タイトル・本文・#カテゴリー）
+- 📖 人生手帳：大事な学びや思考を「大カテゴリー／小カテゴリー」で整理。同じ項目に追記していくことで、考えの変遷がタイムラインで見える
+- 🕸 マイライフ：人生手帳の記録をもとにしたマインドマップ（自分→大カテゴリー→小カテゴリー）
+- 🌳 育つ木：日記を書くたびに木が育つ（たね→ふたば→若木→花咲く木→オレンジが実る木）
+- 🍃 足あとカレンダー：日記を書いた日にオレンジの葉っぱスタンプが押される
+
+すべての記録はFirebase（Firestore）に保存されるので、機種変してもデータは消えません。ローカルキャッシュも併用しているので、起動は一瞬です。
+
+---
+
+## 1. Firebaseのセットアップ（データを機種変後も残すために必須）
+
+1. [Firebase Console](https://console.firebase.google.com/) にアクセスし、新しいプロジェクトを作成（無料のSparkプランでOK）
+2. 左メニューの「構築」→「Firestore Database」→「データベースの作成」
+   - ロケーションはお好みで（例：`asia-northeast1` 東京）
+   - 「本番環境モードで開始」を選択
+3. 「プロジェクトの設定」（歯車アイコン）→「マイアプリ」→ 「</>」（ウェブアプリを追加）
+   - アプリ名は何でもOK（例：人生手帳）
+   - 表示された `firebaseConfig` の値をコピー
+4. このリポジトリの `firebase-config.js` を開き、`YOUR_API_KEY` などのプレースホルダーを実際の値に書き換えて保存
+
+5. Firestoreの「ルール」タブを開き、以下に置き換えてください（自分専用アプリのため、シンプルに全許可にしていますが、他人に推測されにくいプロジェクトIDやAPIキーの取り扱いにはご注意ください）：
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+> ⚠️ 上記ルールは「URLとFirebase設定を知っていれば誰でも読み書きできる」状態です。個人利用でリスクを抑えたい場合は、Firebase Authentication（匿名認証など）を追加し、ルールを `allow read, write: if request.auth != null;` に変更することをおすすめします。ご希望であれば認証付きの構成に変更するお手伝いもできます。
+
+---
+
+## 2. GitHubへのアップロード手順
+
+### 方法A：GitHubのWeb画面からアップロード（コマンド操作なしでOK）
+
+1. [github.com](https://github.com) にログインし、右上の「+」→「New repository」
+2. Repository name に `jinsei-techo` と入力し、「Public」を選択して「Create repository」
+3. 作成後の画面で「uploading an existing file」をクリック
+4. このzip内のファイル・フォルダ（`index.html`, `style.css`, `app.js`, `firebase-config.js`, `manifest.json`, `sw.js`, `icons/`フォルダ一式）を全てドラッグ＆ドロップ
+5. 「Commit changes」をクリック
+
+### 方法B：ターミナルを使う場合
+
+```bash
+cd jinsei-techo
+git init
+git add .
+git commit -m "人生手帳 初回コミット"
+git branch -M main
+git remote add origin https://github.com/【あなたのユーザー名】/jinsei-techo.git
+git push -u origin main
+```
+
+---
+
+## 3. GitHub Pagesで公開する
+
+1. アップロードしたリポジトリの「Settings」タブを開く
+2. 左メニューの「Pages」を選択
+3. 「Build and deployment」の「Source」を **Deploy from a branch** に設定
+4. 「Branch」を `main` / `/ (root)` にして「Save」
+5. 数分待つと、`https://【あなたのユーザー名】.github.io/jinsei-techo/` でアクセスできるようになります
+
+---
+
+## 4. iPhoneでホーム画面に追加する
+
+1. iPhoneのSafariで上記URLを開く
+2. 共有ボタン（□に↑）をタップ
+3. 「ホーム画面に追加」を選択
+
+これでアイコンをタップするだけでアプリのように起動できます。
+
+---
+
+## 5. 他のアプリ（計画の要点帳など）と同じFirebaseプロジェクトを使い回す場合
+
+`firebase-config.js` 内の `COLLECTION_PREFIX`（既定値: `jinseiTecho_`）により、Firestore内のコレクション名を分離しています。同じFirebaseプロジェクトを複数アプリで共有しても、データが混ざることはありません。
+
+---
+
+## ファイル構成
+
+```
+jinsei-techo/
+├── index.html          # アプリ本体（3タブ構成のシェル）
+├── style.css            # デザイン（柔らかいパステルオレンジ基調）
+├── app.js                # ロジック（状態管理・Firebase同期・各タブ描画）
+├── firebase-config.js    # ★ここに自分のFirebase設定を入力する
+├── manifest.json         # PWAマニフェスト
+├── sw.js                  # サービスワーカー（オフライン対応・起動高速化）
+├── icons/
+│   ├── icon-192.png
+│   ├── icon-512.png
+│   └── apple-touch-icon.png
+└── README.md
+```
+
+## 今後カスタマイズしたい場合
+
+- 育つ木の成長段階のしきい値：`app.js` の `getTreeStage()` 関数
+- マインドマップの配色・配置：`app.js` の `renderMyLifeTab()` 関数
+- カラーやフォント：`style.css` 冒頭の `:root` 内のCSS変数
