@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jinsei-techo-v1';
+const CACHE_NAME = 'jinsei-techo-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -24,22 +24,28 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// アプリシェルは cache-first（起動を高速化）、
-// Firestore/Google Fonts などの外部通信はネットワークを優先しつつ、失敗時のみキャッシュにフォールバック
+// stale-while-revalidate：起動速度を保ちつつ、裏側で常に最新版に更新する。
+// これにより、今回のようにファイルを更新した後も「見た目は古いまま」になる問題が起きにくくなる。
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   const isSameOrigin = url.origin === self.location.origin;
+  if (!isSameOrigin || event.request.method !== 'GET') return;
 
-  if (isSameOrigin) {
-    event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return res;
-        });
-      })
-    );
-  }
+  event.respondWith(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      const networkFetch = fetch(event.request).then((res) => {
+        if (res && res.ok) cache.put(event.request, res.clone());
+        return res;
+      }).catch(() => null);
+
+      // キャッシュがあれば即座に返して起動を速く保ち、同時にネットワークから最新版を取得してキャッシュを更新する
+      if (cached) {
+        networkFetch;
+        return cached;
+      }
+      const netRes = await networkFetch;
+      return netRes || cached;
+    })
+  );
 });
