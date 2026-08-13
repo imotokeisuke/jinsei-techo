@@ -1,15 +1,22 @@
 // ==========================================================
 // Firebase 設定ファイル
-// jinsei-techo プロジェクトの設定値を反映済みです。
+// ここに、あなた自身の Firebase プロジェクトの設定値を入力してください。
+//
+// 取得方法：
+// 1. https://console.firebase.google.com/ でプロジェクトを作成（無料のSparkプランでOK）
+// 2. 「Firestore Database」を作成（本番環境モードでOK。ルールは下記README参照）
+// 3. 「プロジェクトの設定」→「マイアプリ」→ ウェブアプリを追加 → 表示される設定値を下にコピー
+//
+// 機種変をしても記録を残すため、このFirebaseプロジェクトがデータの保管場所になります。
 // ==========================================================
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyDuHyxIGG8W_vYwHKgOi9AYkoNb_VBXIqA",
-  authDomain: "jinsei-techo.firebaseapp.com",
-  projectId: "jinsei-techo",
-  storageBucket: "jinsei-techo.firebasestorage.app",
-  messagingSenderId: "132833688976",
-  appId: "1:132833688976:web:462c0bc46fea4ed9adc715"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 
 // 他のアプリ（計画の要点帳など）と同じFirebaseプロジェクトを使い回す場合は、

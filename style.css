@@ -135,11 +135,13 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   border-radius: 16px;
   color: var(--text-faint);
   font-family: 'Zen Maru Gothic', sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
+  min-width: 0;
 }
 .tab-btn.active { color: var(--primary-deep); background: var(--primary-pale); }
-.tab-btn svg { width: 22px; height: 22px; }
+.tab-btn svg { width: 20px; height: 20px; }
+.tab-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* ---------- カード共通 ---------- */
 .card {
@@ -255,6 +257,8 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   transition: opacity .22s ease;
 }
 .modal-overlay.open { opacity: 1; pointer-events: auto; }
+
+#modalArea { width: 100%; }
 
 .modal-sheet {
   width: 100%;
@@ -400,6 +404,63 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   max-width: 80%; text-align: center; font-family: 'Zen Maru Gothic', sans-serif;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- 設定画面 ---------- */
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.settings-tab-btn {
+  flex: 1; border: none; background: var(--bg-soft); color: var(--text-soft);
+  border-radius: 14px; padding: 10px; font-family: 'Zen Maru Gothic', sans-serif;
+  font-weight: 700; font-size: 13px;
+}
+.settings-tab-btn.active { background: var(--primary-strong); color: #fff; }
+.settings-section { display: none; }
+.settings-section.active { display: block; }
+
+.status-badge {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-soft); border-radius: var(--radius-sm);
+  padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: var(--text-soft);
+}
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--text-faint); }
+.status-dot.connected { background: var(--leaf-deep); }
+.status-dot.disconnected { background: #E0A15C; }
+
+.help-text { font-size: 11.5px; color: var(--text-faint); line-height: 1.7; margin: -4px 0 12px; }
+
+/* カテゴリー管理 */
+.cat-major-block { background: var(--card); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); padding: 12px 14px; margin-bottom: 10px; }
+.cat-major-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cat-major-name { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 14.5px; color: var(--text); }
+.cat-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.icon-btn-sm {
+  border: none; background: var(--bg-soft); color: var(--text-soft);
+  width: 30px; height: 30px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.icon-btn-sm.danger { color: #D97757; background: #FFF0E8; }
+.cat-minor-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.cat-minor-chip {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg-soft); border-radius: 999px; padding: 4px 6px 4px 12px;
+  font-size: 12px; color: var(--leaf-deep); font-weight: 700;
+}
+.cat-minor-chip button { border: none; background: none; color: var(--text-faint); width: 18px; height: 18px; display:flex; align-items:center; justify-content:center; }
+.cat-add-minor-btn { border: 1.5px dashed var(--primary-pale-2); background: none; color: var(--primary-deep); border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
+.cat-add-major-btn { width: 100%; border: 1.5px dashed var(--primary-pale-2); background: none; color: var(--primary-deep); border-radius: var(--radius-sm); padding: 12px; font-weight: 700; font-family: 'Zen Maru Gothic', sans-serif; }
+
+/* 日付タイプ切替（エピソード） */
+.date-type-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
+.date-type-btn {
+  flex: 1; border: 2px solid var(--line); background: var(--card); color: var(--text-soft);
+  border-radius: var(--radius-sm); padding: 9px; font-size: 12.5px; font-weight: 700;
+  font-family: 'Zen Maru Gothic', sans-serif;
+}
+.date-type-btn.selected { background: var(--primary-pale); border-color: var(--primary-strong); color: var(--primary-deep); }
+
+/* 人生手帳：編集時の履歴リスト */
+.edit-history-item { background: var(--bg-soft); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 10px; }
+.edit-history-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.edit-history-top input[type="date"] { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font-size: 12.5px; font-family: inherit; background: var(--card); }
 
 /* ---------- ミニダイアログ（confirm / prompt の自作代替） ---------- */
 .mini-overlay {

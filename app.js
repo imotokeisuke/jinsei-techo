@@ -8,6 +8,7 @@ import { firebaseConfig, COLLECTION_PREFIX } from './firebase-config.js';
 ========================================================== */
 
 const LS_KEY = 'jinseiTecho_cache_v1';
+const FIREBASE_LS_KEY = 'jinseiTecho_firebaseConfig_v1';
 
 const state = {
   meta: {
@@ -16,7 +17,8 @@ const state = {
     lifeCategories: { '仕事': ['働き方', 'キャリア'], '家族': [], '健康': [] }
   },
   diary: [],     // { id, date, title, body, categories:[], createdAt, updatedAt }
-  notebook: []   // { id, majorCategory, minorCategory, title, history:[{date, content}], createdAt, updatedAt }
+  notebook: [],  // { id, majorCategory, minorCategory, title, history:[{date, content}], createdAt, updatedAt }
+  episode: []    // { id, majorCategory, minorCategory, title, content, dateType:'full'|'year', dateValue, createdAt, updatedAt }
 };
 
 let currentTab = 'diary';
@@ -25,6 +27,9 @@ let diaryFilterCat = null;
 let notebookSearch = '';
 let notebookFilterMajor = null;
 let notebookFilterMinor = null;
+let episodeSearch = '';
+let episodeFilterMajor = null;
+let episodeFilterMinor = null;
 let mindmapSelectedMajor = null;
 let calCursor = new Date();
 let db = null;
@@ -43,6 +48,14 @@ function formatDateLabel(dateStr) {
   const [y, m, d] = dateStr.split('-');
   const dow = ['日', '月', '火', '水', '木', '金', '土'][new Date(dateStr).getDay()];
   return `${y}年${parseInt(m)}月${parseInt(d)}日（${dow}）`;
+}
+// エピソード用：年のみ('YYYY')か完全な日付('YYYY-MM-DD')かに対応した表示
+function formatEpisodeDateLabel(ep) {
+  if (ep.dateType === 'year') return `${ep.dateValue}年`;
+  return formatDateLabel(ep.dateValue);
+}
+function episodeSortKey(ep) {
+  return ep.dateType === 'year' ? `${ep.dateValue}-01-01` : ep.dateValue;
 }
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -67,13 +80,51 @@ function loadLocal() {
       Object.assign(state.meta, parsed.meta || {});
       state.diary = parsed.diary || [];
       state.notebook = parsed.notebook || [];
+      state.episode = parsed.episode || [];
     }
   } catch (e) { /* 破損キャッシュは無視 */ }
 }
 
+/* ---------------- アプリ内Firebase設定（設定タブから保存） ---------------- */
+function getStoredFirebaseConfig() {
+  try {
+    const raw = localStorage.getItem(FIREBASE_LS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* 無視 */ }
+  return null;
+}
+function saveStoredFirebaseConfig(cfg) {
+  localStorage.setItem(FIREBASE_LS_KEY, JSON.stringify(cfg));
+}
+function clearStoredFirebaseConfig() {
+  localStorage.removeItem(FIREBASE_LS_KEY);
+}
+// Firebaseコンソールからコピーした <script> ブロックや firebaseConfig オブジェクトを
+// そのまま貼り付けても読み取れるよう、正規表現で緩く抽出する
+function extractFirebaseConfigFromText(text) {
+  const grab = (key) => {
+    const m = text.match(new RegExp(key + '\\s*:\\s*["\']([^"\']+)["\']'));
+    return m ? m[1] : '';
+  };
+  const cfg = {
+    apiKey: grab('apiKey'),
+    authDomain: grab('authDomain'),
+    projectId: grab('projectId'),
+    storageBucket: grab('storageBucket'),
+    messagingSenderId: grab('messagingSenderId'),
+    appId: grab('appId')
+  };
+  if (!cfg.apiKey || !cfg.projectId) return null;
+  return cfg;
+}
+
 /* ---------------- Firebase 初期化＆同期 ---------------- */
+function getActiveFirebaseConfig() {
+  return getStoredFirebaseConfig() || firebaseConfig;
+}
 async function initFirebase() {
-  if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'YOUR_API_KEY') {
+  const cfg = getActiveFirebaseConfig();
+  if (!cfg.apiKey || cfg.apiKey === 'YOUR_API_KEY') {
     toast('Firebase未設定：ローカル保存のみで動作中');
     return;
   }
@@ -83,7 +134,7 @@ async function initFirebase() {
       import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js')
     ]);
     fsApi = firestoreMod;
-    const app = initializeApp(firebaseConfig);
+    const app = initializeApp(cfg);
     db = fsApi.initializeFirestore(app, {
       localCache: fsApi.persistentLocalCache({ tabManager: fsApi.persistentSingleTabManager() })
     });
@@ -101,7 +152,7 @@ async function initFirebase() {
       saveLocal();
       renderHeader();
       renderCurrentTab();
-    });
+    }, () => toast('Firestoreに接続できません（ルールやプロジェクト設定をご確認ください）'));
 
     const diaryCol = fsApi.collection(db, COLLECTION_PREFIX + 'diary');
     fsApi.onSnapshot(diaryCol, snap => {
@@ -116,6 +167,15 @@ async function initFirebase() {
       saveLocal();
       if (currentTab === 'notebook' || currentTab === 'mylife') renderCurrentTab();
     });
+
+    const episodeCol = fsApi.collection(db, COLLECTION_PREFIX + 'episode');
+    fsApi.onSnapshot(episodeCol, snap => {
+      state.episode = snap.docs.map(d => d.data());
+      saveLocal();
+      if (currentTab === 'episode') renderCurrentTab();
+    });
+
+    toast('Firebaseに接続しました');
   } catch (e) {
     console.error(e);
     toast('オンライン同期に接続できません（オフラインで利用中）');
@@ -158,6 +218,7 @@ function switchTab(tab) {
 function renderCurrentTab() {
   if (currentTab === 'diary') renderDiaryTab();
   else if (currentTab === 'notebook') renderNotebookTab();
+  else if (currentTab === 'episode') renderEpisodeTab();
   else renderMyLifeTab();
 }
 
@@ -456,7 +517,10 @@ function openNotebookDetail(entry) {
       <div class="timeline" id="nb_timeline"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="nb_close">閉じる</button>
+        <button class="btn btn-secondary" id="nb_edit">編集</button>
         <button class="btn btn-danger" id="nb_delete">削除</button>
+      </div>
+      <div class="modal-actions">
         <button class="btn btn-primary" id="nb_append">今の思考を追記</button>
       </div>
     </div>`;
@@ -468,6 +532,7 @@ function openNotebookDetail(entry) {
     </div>`).join('');
   openModal();
   $('#nb_close').onclick = closeModal;
+  $('#nb_edit').onclick = () => openNotebookEditForm(entry);
   $('#nb_delete').onclick = async () => {
     const ok = await showConfirm('この項目を削除しますか？これまでの変遷もすべて削除されます。');
     if (ok) {
@@ -477,6 +542,124 @@ function openNotebookDetail(entry) {
     }
   };
   $('#nb_append').onclick = () => openNotebookAppendForm(entry);
+}
+
+function openNotebookEditForm(entry) {
+  const lc = state.meta.lifeCategories;
+  let chosenMajor = entry.majorCategory, chosenMinor = entry.minorCategory || null;
+  // 履歴は編集用にディープコピーしておき、保存時にまとめて反映する
+  const historyDraft = entry.history.map(h => ({ ...h }));
+
+  $('#modalArea').innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">「${escapeHtml(entry.title)}」を編集</div>
+      <div class="form-group">
+        <label class="form-label">大カテゴリー</label>
+        <div class="tag-select-row" id="f_majors"></div>
+      </div>
+      <div class="form-group" id="f_minor_group" style="display:none;">
+        <label class="form-label">小カテゴリー（任意）</label>
+        <div class="tag-select-row" id="f_minors"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">タイトル</label>
+        <input type="text" id="f_title" class="form-input" value="${escapeHtml(entry.title)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">思考の変遷（内容や日付の修正・削除ができます）</label>
+        <div id="f_history"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="f_cancel">キャンセル</button>
+        <button class="btn btn-primary" id="f_save">保存</button>
+      </div>
+    </div>`;
+  openModal();
+
+  function renderHistoryDraft() {
+    $('#f_history').innerHTML = historyDraft.map((h, i) => `
+      <div class="edit-history-item" data-i="${i}">
+        <div class="edit-history-top">
+          <input type="date" class="h-date" value="${h.date}">
+          ${historyDraft.length > 1 ? `<button type="button" class="icon-btn-sm danger h-delete" aria-label="この記録を削除"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>` : ''}
+        </div>
+        <textarea class="form-textarea h-content" style="min-height:70px;">${escapeHtml(h.content)}</textarea>
+      </div>`).join('');
+    $$('#f_history .edit-history-item').forEach(row => {
+      const i = parseInt(row.dataset.i);
+      row.querySelector('.h-date').addEventListener('change', (e) => { historyDraft[i].date = e.target.value; });
+      row.querySelector('.h-content').addEventListener('input', (e) => { historyDraft[i].content = e.target.value; });
+      const delBtn = row.querySelector('.h-delete');
+      if (delBtn) delBtn.onclick = () => { historyDraft.splice(i, 1); renderHistoryDraft(); };
+    });
+  }
+  renderHistoryDraft();
+
+  function renderMinors() {
+    const group = $('#f_minor_group');
+    if (!chosenMajor) { group.style.display = 'none'; return; }
+    group.style.display = 'block';
+    const minors = lc[chosenMajor] || [];
+    $('#f_minors').innerHTML = minors.map(m => `<button type="button" class="tag-option ${chosenMinor === m ? 'selected' : ''}" data-minor="${escapeHtml(m)}">#${escapeHtml(m)}</button>`).join('')
+      + `<button type="button" class="tag-option add-new" id="f_add_minor">＋新しい小カテゴリー</button>`;
+    $('#f_minors').onclick = async (ev) => {
+      const btn = ev.target.closest('.tag-option');
+      if (!btn) return;
+      if (btn.id === 'f_add_minor') {
+        const name = await showPrompt('新しい小カテゴリー名を入力してください', '例：働き方');
+        if (name) {
+          const clean = name.replace(/^#/, '');
+          if (!lc[chosenMajor].includes(clean)) lc[chosenMajor].push(clean);
+          chosenMinor = clean;
+          fsSetMeta();
+          renderMinors();
+        }
+        return;
+      }
+      chosenMinor = (chosenMinor === btn.dataset.minor) ? null : btn.dataset.minor;
+      renderMinors();
+    };
+  }
+  function renderMajorChips() {
+    $('#f_majors').innerHTML =
+      Object.keys(lc).map(m => `<button type="button" class="tag-option ${chosenMajor === m ? 'selected' : ''}" data-major="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join('') +
+      `<button type="button" class="tag-option add-new" id="f_add_major">＋新しい大カテゴリー</button>`;
+  }
+  $('#f_majors').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.tag-option');
+    if (!btn) return;
+    if (btn.id === 'f_add_major') {
+      const name = await showPrompt('新しい大カテゴリー名を入力してください', '例：仕事');
+      if (name) {
+        if (!lc[name]) lc[name] = [];
+        chosenMajor = name; chosenMinor = null;
+        fsSetMeta();
+        refreshMajors();
+      }
+      return;
+    }
+    chosenMajor = btn.dataset.major; chosenMinor = null;
+    refreshMajors();
+  });
+  function refreshMajors() { renderMajorChips(); renderMinors(); }
+  refreshMajors();
+
+  $('#f_cancel').onclick = () => openNotebookDetail(entry);
+  $('#f_save').onclick = () => {
+    const title = $('#f_title').value.trim();
+    if (!chosenMajor) { toast('大カテゴリーを選択してください'); return; }
+    if (!title) { toast('タイトルを入力してください'); return; }
+    if (historyDraft.length === 0 || historyDraft.some(h => !h.content.trim())) { toast('内容が空の記録があります'); return; }
+    historyDraft.sort((a, b) => a.date.localeCompare(b.date));
+    entry.title = title;
+    entry.majorCategory = chosenMajor;
+    entry.minorCategory = chosenMinor || '';
+    entry.history = historyDraft;
+    entry.updatedAt = new Date().toISOString();
+    fsSet('notebook', entry);
+    closeModal(); renderNotebookTab(); toast('保存しました');
+  };
 }
 
 function openNotebookAppendForm(entry) {
@@ -610,6 +793,182 @@ function openNotebookForm() {
 }
 
 /* ==========================================================
+   エピソードタブ（人生手帳と同じカテゴリー体系。日付は年のみでも可）
+========================================================== */
+function renderEpisodeTab() {
+  const lc = state.meta.lifeCategories;
+  const majors = Object.keys(lc);
+  $('#episodeMajorChips').innerHTML =
+    `<button class="chip ${!episodeFilterMajor ? 'active' : ''}" data-major="">すべて</button>` +
+    majors.map(m => `<button class="chip ${episodeFilterMajor === m ? 'active' : ''}" data-major="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join('');
+
+  const minorList = episodeFilterMajor ? (lc[episodeFilterMajor] || []) : [];
+  $('#episodeMinorChips').style.display = episodeFilterMajor && minorList.length ? 'flex' : 'none';
+  $('#episodeMinorChips').innerHTML =
+    `<button class="chip ghost ${!episodeFilterMinor ? 'active' : ''}" data-minor="">小カテゴリー：すべて</button>` +
+    minorList.map(m => `<button class="chip ghost ${episodeFilterMinor === m ? 'active' : ''}" data-minor="${escapeHtml(m)}">#${escapeHtml(m)}</button>`).join('');
+
+  let list = [...state.episode].sort((a, b) => episodeSortKey(b).localeCompare(episodeSortKey(a)));
+  if (episodeFilterMajor) list = list.filter(e => e.majorCategory === episodeFilterMajor);
+  if (episodeFilterMinor) list = list.filter(e => e.minorCategory === episodeFilterMinor);
+  if (episodeSearch.trim()) {
+    const q = episodeSearch.trim().toLowerCase();
+    list = list.filter(e => (e.title + e.content).toLowerCase().includes(q));
+  }
+
+  const listEl = $('#episodeList');
+  if (list.length === 0) {
+    listEl.innerHTML = `<div class="empty-state"><div>まだエピソードがありません。<br>右下の＋ボタンから、人生で語りたい出来事を記録してみましょう。</div></div>`;
+  } else {
+    listEl.innerHTML = list.map(e => `
+      <div class="entry-item" data-id="${e.id}">
+        <div class="entry-top-row"><span class="entry-date">${formatEpisodeDateLabel(e)}</span></div>
+        <div class="entry-title">${escapeHtml(e.title)}</div>
+        <div class="entry-body">${escapeHtml(e.content)}</div>
+        <div class="entry-tags">
+          <span class="tag">${escapeHtml(e.majorCategory)}</span>
+          ${e.minorCategory ? `<span class="tag minor">#${escapeHtml(e.minorCategory)}</span>` : ''}
+        </div>
+      </div>`).join('');
+  }
+}
+
+function openEpisodeForm(entry) {
+  const lc = state.meta.lifeCategories;
+  let chosenMajor = entry ? entry.majorCategory : null;
+  let chosenMinor = entry ? (entry.minorCategory || null) : null;
+  let dateType = entry ? entry.dateType : 'full';
+  const todayVal = todayStr();
+  const fullVal = entry && entry.dateType === 'full' ? entry.dateValue : todayVal;
+  const yearVal = entry && entry.dateType === 'year' ? entry.dateValue : String(new Date().getFullYear());
+
+  $('#modalArea').innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">${entry ? 'エピソードを編集' : 'エピソードを追加'}</div>
+      <div class="form-group">
+        <label class="form-label">日付の形式</label>
+        <div class="date-type-toggle">
+          <button type="button" class="date-type-btn" id="dt_full">年月日</button>
+          <button type="button" class="date-type-btn" id="dt_year">年のみ（昔のエピソード向け）</button>
+        </div>
+        <input type="date" id="f_date_full" class="form-input" value="${fullVal}">
+        <input type="number" id="f_date_year" class="form-input" value="${yearVal}" placeholder="例：2006" style="display:none;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">大カテゴリー</label>
+        <div class="tag-select-row" id="f_majors"></div>
+      </div>
+      <div class="form-group" id="f_minor_group" style="display:none;">
+        <label class="form-label">小カテゴリー（任意）</label>
+        <div class="tag-select-row" id="f_minors"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">タイトル</label>
+        <input type="text" id="f_title" class="form-input" placeholder="例：大学時代の海外一人旅" value="${escapeHtml(entry?.title || '')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">エピソード</label>
+        <textarea id="f_content" class="form-textarea" placeholder="語りたい出来事、そのときの気持ち...">${escapeHtml(entry?.content || '')}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="f_cancel">キャンセル</button>
+        ${entry ? '<button class="btn btn-danger" id="f_delete">削除</button>' : ''}
+        <button class="btn btn-primary" id="f_save">保存</button>
+      </div>
+    </div>`;
+  openModal();
+
+  function renderDateType() {
+    $('#dt_full').classList.toggle('selected', dateType === 'full');
+    $('#dt_year').classList.toggle('selected', dateType === 'year');
+    $('#f_date_full').style.display = dateType === 'full' ? 'block' : 'none';
+    $('#f_date_year').style.display = dateType === 'year' ? 'block' : 'none';
+  }
+  renderDateType();
+  $('#dt_full').onclick = () => { dateType = 'full'; renderDateType(); };
+  $('#dt_year').onclick = () => { dateType = 'year'; renderDateType(); };
+
+  function renderMinors() {
+    const group = $('#f_minor_group');
+    if (!chosenMajor) { group.style.display = 'none'; return; }
+    group.style.display = 'block';
+    const minors = lc[chosenMajor] || [];
+    $('#f_minors').innerHTML = minors.map(m => `<button type="button" class="tag-option ${chosenMinor === m ? 'selected' : ''}" data-minor="${escapeHtml(m)}">#${escapeHtml(m)}</button>`).join('')
+      + `<button type="button" class="tag-option add-new" id="f_add_minor">＋新しい小カテゴリー</button>`;
+    $('#f_minors').onclick = async (ev) => {
+      const btn = ev.target.closest('.tag-option');
+      if (!btn) return;
+      if (btn.id === 'f_add_minor') {
+        const name = await showPrompt('新しい小カテゴリー名を入力してください', '例：旅行');
+        if (name) {
+          const clean = name.replace(/^#/, '');
+          if (!lc[chosenMajor].includes(clean)) lc[chosenMajor].push(clean);
+          chosenMinor = clean;
+          fsSetMeta();
+          renderMinors();
+        }
+        return;
+      }
+      chosenMinor = (chosenMinor === btn.dataset.minor) ? null : btn.dataset.minor;
+      renderMinors();
+    };
+  }
+  function renderMajorChips() {
+    $('#f_majors').innerHTML =
+      Object.keys(lc).map(m => `<button type="button" class="tag-option ${chosenMajor === m ? 'selected' : ''}" data-major="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join('') +
+      `<button type="button" class="tag-option add-new" id="f_add_major">＋新しい大カテゴリー</button>`;
+  }
+  $('#f_majors').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.tag-option');
+    if (!btn) return;
+    if (btn.id === 'f_add_major') {
+      const name = await showPrompt('新しい大カテゴリー名を入力してください', '例：旅行');
+      if (name) {
+        if (!lc[name]) lc[name] = [];
+        chosenMajor = name; chosenMinor = null;
+        fsSetMeta();
+        refreshMajors();
+      }
+      return;
+    }
+    chosenMajor = (chosenMajor === btn.dataset.major) ? null : btn.dataset.major;
+    chosenMinor = null;
+    refreshMajors();
+  });
+  function refreshMajors() { renderMajorChips(); renderMinors(); }
+  refreshMajors();
+
+  $('#f_cancel').onclick = closeModal;
+  if (entry) $('#f_delete').onclick = async () => {
+    const ok = await showConfirm('このエピソードを削除しますか？元に戻せません。');
+    if (ok) {
+      state.episode = state.episode.filter(x => x.id !== entry.id);
+      fsDelete('episode', entry.id);
+      closeModal(); renderEpisodeTab(); toast('削除しました');
+    }
+  };
+  $('#f_save').onclick = () => {
+    const title = $('#f_title').value.trim();
+    const content = $('#f_content').value.trim();
+    const dateValue = dateType === 'full' ? ($('#f_date_full').value || todayVal) : String($('#f_date_year').value || new Date().getFullYear());
+    if (!chosenMajor) { toast('大カテゴリーを選択してください'); return; }
+    if (!title || !content) { toast('タイトルと内容を入力してください'); return; }
+    if (dateType === 'year' && !/^\d{1,4}$/.test(dateValue)) { toast('年は数字で入力してください'); return; }
+    const now = new Date().toISOString();
+    if (entry) {
+      Object.assign(entry, { majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, updatedAt: now });
+      fsSet('episode', entry);
+    } else {
+      const newEntry = { id: uid(), majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, createdAt: now, updatedAt: now };
+      state.episode.push(newEntry);
+      fsSet('episode', newEntry);
+    }
+    closeModal(); renderEpisodeTab(); toast('保存しました');
+  };
+}
+
+/* ==========================================================
    マイライフタブ（マインドマップ：大カテゴリー→小カテゴリー）
 ========================================================== */
 function renderMyLifeTab() {
@@ -697,6 +1056,172 @@ function renderMindmapFilteredList() {
 }
 
 /* ==========================================================
+   設定画面（Firebase接続 ＋ カテゴリー管理）
+========================================================== */
+function openSettingsScreen(initialSection = 'firebase') {
+  $('#modalArea').innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">設定</div>
+      <div class="settings-tabs">
+        <button type="button" class="settings-tab-btn" id="st_firebase">Firebase接続</button>
+        <button type="button" class="settings-tab-btn" id="st_category">カテゴリー管理</button>
+      </div>
+      <div class="settings-section" id="sec_firebase"></div>
+      <div class="settings-section" id="sec_category"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="settings_close">閉じる</button>
+      </div>
+    </div>`;
+  openModal();
+  $('#settings_close').onclick = closeModal;
+
+  function showSection(name) {
+    $('#st_firebase').classList.toggle('active', name === 'firebase');
+    $('#st_category').classList.toggle('active', name === 'category');
+    $('#sec_firebase').classList.toggle('active', name === 'firebase');
+    $('#sec_category').classList.toggle('active', name === 'category');
+  }
+  $('#st_firebase').onclick = () => showSection('firebase');
+  $('#st_category').onclick = () => showSection('category');
+
+  renderFirebaseSection();
+  renderCategorySection();
+  showSection(initialSection);
+
+  function renderFirebaseSection() {
+    const stored = getStoredFirebaseConfig();
+    const active = getActiveFirebaseConfig();
+    const isConnected = db !== null;
+    const hasConfig = active.apiKey && active.apiKey !== 'YOUR_API_KEY';
+    $('#sec_firebase').innerHTML = `
+      <div class="status-badge">
+        <span class="status-dot ${isConnected ? 'connected' : hasConfig ? 'disconnected' : ''}"></span>
+        <span>${isConnected ? `接続中：${escapeHtml(active.projectId || '')}` : hasConfig ? '設定はありますが未接続です（保存すると再読み込みされます）' : '未接続：ローカル保存のみで動作中'}</span>
+      </div>
+      <p class="help-text">Firebaseコンソールの「プロジェクトの設定」→「マイアプリ」に表示される、firebaseConfigのコード全体（&lt;script&gt;タグごとでも構いません）をそのまま貼り付けてください。</p>
+      <div class="form-group">
+        <textarea id="fb_paste" class="form-textarea" style="min-height:150px; font-family: monospace; font-size:12px;" placeholder="const firebaseConfig = {&#10;  apiKey: &quot;...&quot;,&#10;  ...&#10;};"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="fb_save">保存して接続</button>
+      </div>
+      ${stored ? '<div class="modal-actions"><button class="btn btn-danger" id="fb_clear">アプリ内の設定を削除してデフォルトに戻す</button></div>' : ''}
+    `;
+    $('#fb_save').onclick = () => {
+      const text = $('#fb_paste').value;
+      const cfg = extractFirebaseConfigFromText(text);
+      if (!cfg) { toast('設定を読み取れませんでした。貼り付け内容をご確認ください'); return; }
+      saveStoredFirebaseConfig(cfg);
+      toast('保存しました。再読み込みします...');
+      setTimeout(() => location.reload(), 700);
+    };
+    const clearBtn = $('#fb_clear');
+    if (clearBtn) clearBtn.onclick = async () => {
+      const ok = await showConfirm('アプリ内に保存したFirebase設定を削除しますか？', '削除する');
+      if (ok) { clearStoredFirebaseConfig(); toast('削除しました。再読み込みします...'); setTimeout(() => location.reload(), 700); }
+    };
+  }
+
+  function renderCategorySection() {
+    const lc = state.meta.lifeCategories;
+    const majors = Object.keys(lc);
+    $('#sec_category').innerHTML = `
+      <p class="help-text">「人生手帳」と「エピソード」で共通して使うカテゴリーです。ここでの変更はどちらのタブにも反映されます。</p>
+      <div id="cat_list"></div>
+      <button type="button" class="cat-add-major-btn" id="cat_add_major">＋大カテゴリーを追加</button>
+    `;
+    renderCatList();
+
+    function renderCatList() {
+      const listEl = $('#cat_list');
+      if (majorsFresh().length === 0) {
+        listEl.innerHTML = `<div class="empty-state" style="padding:20px;">まだカテゴリーがありません</div>`;
+        return;
+      }
+      listEl.innerHTML = majorsFresh().map(m => `
+        <div class="cat-major-block" data-major="${escapeHtml(m)}">
+          <div class="cat-major-row">
+            <span class="cat-major-name">${escapeHtml(m)}</span>
+            <div class="cat-row-actions">
+              <button type="button" class="icon-btn-sm cat-rename-major" aria-label="名前を変更"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+              <button type="button" class="icon-btn-sm danger cat-delete-major" aria-label="削除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+            </div>
+          </div>
+          <div class="cat-minor-list">
+            ${(lc[m] || []).map(mi => `
+              <span class="cat-minor-chip" data-minor="${escapeHtml(mi)}">
+                #${escapeHtml(mi)}
+                <button type="button" class="cat-rename-minor" aria-label="名前を変更">✎</button>
+                <button type="button" class="cat-delete-minor" aria-label="削除">×</button>
+              </span>`).join('')}
+            <button type="button" class="cat-add-minor-btn" data-major="${escapeHtml(m)}">＋小カテゴリー</button>
+          </div>
+        </div>`).join('');
+
+      $$('.cat-major-block', listEl).forEach(block => {
+        const major = block.dataset.major;
+        block.querySelector('.cat-rename-major').onclick = async () => {
+          const name = await showPrompt('大カテゴリーの新しい名前を入力してください', major);
+          if (name && name !== major && !lc[name]) {
+            lc[name] = lc[major]; delete lc[major];
+            if (notebookFilterMajor === major) notebookFilterMajor = name;
+            if (episodeFilterMajor === major) episodeFilterMajor = name;
+            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+          }
+        };
+        block.querySelector('.cat-delete-major').onclick = async () => {
+          const ok = await showConfirm(`「${major}」を削除しますか？このカテゴリーが設定されている記録は、大カテゴリーが空の状態になります。`);
+          if (ok) {
+            delete lc[major];
+            if (notebookFilterMajor === major) notebookFilterMajor = null;
+            if (episodeFilterMajor === major) episodeFilterMajor = null;
+            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+          }
+        };
+        $$('.cat-minor-chip', block).forEach(chip => {
+          const minor = chip.dataset.minor;
+          chip.querySelector('.cat-rename-minor').onclick = async () => {
+            const name = await showPrompt('小カテゴリーの新しい名前を入力してください', minor);
+            if (name && name !== minor) {
+              const idx = lc[major].indexOf(minor);
+              if (idx > -1 && !lc[major].includes(name)) {
+                lc[major][idx] = name;
+                fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+              }
+            }
+          };
+          chip.querySelector('.cat-delete-minor').onclick = async () => {
+            const ok = await showConfirm(`「#${minor}」を削除しますか？`);
+            if (ok) {
+              lc[major] = lc[major].filter(x => x !== minor);
+              fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+            }
+          };
+        });
+        block.querySelector('.cat-add-minor-btn').onclick = async () => {
+          const name = await showPrompt(`「${major}」に追加する小カテゴリー名を入力してください`);
+          if (name) {
+            const clean = name.replace(/^#/, '');
+            if (!lc[major].includes(clean)) lc[major].push(clean);
+            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+          }
+        };
+      });
+    }
+    function majorsFresh() { return Object.keys(lc); }
+
+    $('#cat_add_major').onclick = async () => {
+      const name = await showPrompt('新しい大カテゴリー名を入力してください', '例：趣味');
+      if (name && !lc[name]) {
+        lc[name] = [];
+        fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+      }
+    };
+  }
+}
+
+/* ==========================================================
    モーダル共通
 ========================================================== */
 function openModal() { $('#modalOverlay').classList.add('open'); }
@@ -751,11 +1276,13 @@ function initEvents() {
   $('#appTitleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#appTitleInput').blur(); });
 
   $('#calendarBtn').onclick = openCalendarModal;
+  $('#settingsBtn').onclick = () => openSettingsScreen();
   $('#modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
 
   $('#fab').onclick = () => {
     if (currentTab === 'diary') openDiaryForm(null);
     else if (currentTab === 'notebook') openNotebookForm();
+    else if (currentTab === 'episode') openEpisodeForm(null);
   };
 
   $('#diarySearchInput').addEventListener('input', (e) => { diarySearch = e.target.value; renderDiaryTab(); });
@@ -782,6 +1309,21 @@ function initEvents() {
     const item = e.target.closest('.entry-item'); if (!item) return;
     const entry = state.notebook.find(n => n.id === item.dataset.id);
     if (entry) openNotebookDetail(entry);
+  });
+
+  $('#episodeSearchInput').addEventListener('input', (e) => { episodeSearch = e.target.value; renderEpisodeTab(); });
+  $('#episodeMajorChips').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip'); if (!btn) return;
+    episodeFilterMajor = btn.dataset.major || null; episodeFilterMinor = null; renderEpisodeTab();
+  });
+  $('#episodeMinorChips').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip'); if (!btn) return;
+    episodeFilterMinor = btn.dataset.minor || null; renderEpisodeTab();
+  });
+  $('#episodeList').addEventListener('click', (e) => {
+    const item = e.target.closest('.entry-item'); if (!item) return;
+    const entry = state.episode.find(x => x.id === item.dataset.id);
+    if (entry) openEpisodeForm(entry);
   });
 
   $('#mylifeFilteredList').addEventListener('click', (e) => {
