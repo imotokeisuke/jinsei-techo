@@ -14,10 +14,11 @@ const state = {
   meta: {
     appTitle: '人生手帳',
     diaryCategories: ['気づき', '感謝', '仕事'],
-    lifeCategories: { '仕事': ['働き方', 'キャリア'], '家族': [], '健康': [] }
+    lifeCategories: { '仕事': ['働き方', 'キャリア'], '家族': [], '健康': [] },
+    verbalizationTags: ['思考', '性格']
   },
   diary: [],     // { id, date, title, body, categories:[], createdAt, updatedAt }
-  notebook: [],  // { id, majorCategory, minorCategory, title, history:[{date, content}], createdAt, updatedAt }
+  notebook: [],  // { id, majorCategory, minorCategory, title, verbalTags:[], history:[{date, content}], createdAt, updatedAt }
   episode: []    // { id, majorCategory, minorCategory, title, content, dateType:'full'|'year', dateValue, createdAt, updatedAt }
 };
 
@@ -27,6 +28,7 @@ let diaryFilterCat = null;
 let notebookSearch = '';
 let notebookFilterMajor = null;
 let notebookFilterMinor = null;
+let notebookFilterVerbal = null;
 let episodeSearch = '';
 let episodeFilterMajor = null;
 let episodeFilterMinor = null;
@@ -476,9 +478,15 @@ function renderNotebookTab() {
     `<button class="chip ghost ${!notebookFilterMinor ? 'active' : ''}" data-minor="">小カテゴリー：すべて</button>` +
     minorList.map(m => `<button class="chip ghost ${notebookFilterMinor === m ? 'active' : ''}" data-minor="${escapeHtml(m)}">#${escapeHtml(m)}</button>`).join('');
 
+  const verbalTags = state.meta.verbalizationTags || [];
+  $('#notebookVerbalChips').innerHTML =
+    `<button class="chip ghost verbal ${!notebookFilterVerbal ? 'active' : ''}" data-verbal="">言語化分類：すべて</button>` +
+    verbalTags.map(v => `<button class="chip ghost verbal ${notebookFilterVerbal === v ? 'active' : ''}" data-verbal="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('');
+
   let list = [...state.notebook].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   if (notebookFilterMajor) list = list.filter(e => e.majorCategory === notebookFilterMajor);
   if (notebookFilterMinor) list = list.filter(e => e.minorCategory === notebookFilterMinor);
+  if (notebookFilterVerbal) list = list.filter(e => (e.verbalTags || []).includes(notebookFilterVerbal));
   if (notebookSearch.trim()) {
     const q = notebookSearch.trim().toLowerCase();
     list = list.filter(e => (e.title + latestContent(e)).toLowerCase().includes(q));
@@ -496,6 +504,7 @@ function renderNotebookTab() {
         <div class="entry-tags">
           <span class="tag">${escapeHtml(e.majorCategory)}</span>
           ${e.minorCategory ? `<span class="tag minor">#${escapeHtml(e.minorCategory)}</span>` : ''}
+          ${(e.verbalTags || []).map(v => `<span class="tag verbal">${escapeHtml(v)}</span>`).join('')}
           ${e.history.length > 1 ? `<span class="tag minor">変遷 ${e.history.length}件</span>` : ''}
         </div>
       </div>`).join('');
@@ -512,6 +521,7 @@ function openNotebookDetail(entry) {
       <div class="entry-tags" style="margin-bottom:10px;">
         <span class="tag">${escapeHtml(entry.majorCategory)}</span>
         ${entry.minorCategory ? `<span class="tag minor">#${escapeHtml(entry.minorCategory)}</span>` : ''}
+        ${(entry.verbalTags || []).map(v => `<span class="tag verbal">${escapeHtml(v)}</span>`).join('')}
       </div>
       <div class="section-title" style="margin-top:4px;">思考の変遷</div>
       <div class="timeline" id="nb_timeline"></div>
@@ -561,6 +571,10 @@ function openNotebookEditForm(entry) {
       <div class="form-group" id="f_minor_group" style="display:none;">
         <label class="form-label">小カテゴリー（任意）</label>
         <div class="tag-select-row" id="f_minors"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">言語化分類（複数選択可・カテゴリーと別軸で並び替えに使えます）</label>
+        <div class="tag-select-row" id="f_verbals"></div>
       </div>
       <div class="form-group">
         <label class="form-label">タイトル</label>
@@ -645,6 +659,31 @@ function openNotebookEditForm(entry) {
   function refreshMajors() { renderMajorChips(); renderMinors(); }
   refreshMajors();
 
+  const chosenVerbals = new Set(entry.verbalTags || []);
+  function renderVerbals() {
+    const tags = state.meta.verbalizationTags || [];
+    $('#f_verbals').innerHTML = tags.map(v => `<button type="button" class="tag-option ${chosenVerbals.has(v) ? 'selected' : ''}" data-verbal="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('')
+      + `<button type="button" class="tag-option add-new" id="f_add_verbal">＋新しい言語化分類</button>`;
+  }
+  $('#f_verbals').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.tag-option');
+    if (!btn) return;
+    if (btn.id === 'f_add_verbal') {
+      const name = await showPrompt('新しい言語化分類名を入力してください', '例：価値観');
+      if (name) {
+        if (!state.meta.verbalizationTags.includes(name)) state.meta.verbalizationTags.push(name);
+        chosenVerbals.add(name);
+        fsSetMeta();
+        renderVerbals();
+      }
+      return;
+    }
+    const v = btn.dataset.verbal;
+    if (chosenVerbals.has(v)) chosenVerbals.delete(v); else chosenVerbals.add(v);
+    renderVerbals();
+  });
+  renderVerbals();
+
   $('#f_cancel').onclick = () => openNotebookDetail(entry);
   $('#f_save').onclick = () => {
     const title = $('#f_title').value.trim();
@@ -655,6 +694,7 @@ function openNotebookEditForm(entry) {
     entry.title = title;
     entry.majorCategory = chosenMajor;
     entry.minorCategory = chosenMinor || '';
+    entry.verbalTags = [...chosenVerbals];
     entry.history = historyDraft;
     entry.updatedAt = new Date().toISOString();
     fsSet('notebook', entry);
@@ -705,6 +745,13 @@ function openNotebookForm() {
       <div class="form-group" id="f_minor_group" style="display:none;">
         <label class="form-label">小カテゴリー（任意）</label>
         <div class="tag-select-row" id="f_minors"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">言語化分類（複数選択可・カテゴリーと別軸で並び替えに使えます）</label>
+        <div class="tag-select-row" id="f_verbals">
+          ${(state.meta.verbalizationTags || []).map(v => `<button type="button" class="tag-option" data-verbal="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('')}
+          <button type="button" class="tag-option add-new" id="f_add_verbal">＋新しい言語化分類</button>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">タイトル</label>
@@ -775,6 +822,30 @@ function openNotebookForm() {
     renderMinors();
   }
 
+  const chosenVerbals = new Set();
+  function renderVerbals() {
+    const tags = state.meta.verbalizationTags || [];
+    $('#f_verbals').innerHTML = tags.map(v => `<button type="button" class="tag-option ${chosenVerbals.has(v) ? 'selected' : ''}" data-verbal="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('')
+      + `<button type="button" class="tag-option add-new" id="f_add_verbal">＋新しい言語化分類</button>`;
+  }
+  $('#f_verbals').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.tag-option');
+    if (!btn) return;
+    if (btn.id === 'f_add_verbal') {
+      const name = await showPrompt('新しい言語化分類名を入力してください', '例：価値観');
+      if (name) {
+        if (!state.meta.verbalizationTags.includes(name)) state.meta.verbalizationTags.push(name);
+        chosenVerbals.add(name);
+        fsSetMeta();
+        renderVerbals();
+      }
+      return;
+    }
+    const v = btn.dataset.verbal;
+    if (chosenVerbals.has(v)) chosenVerbals.delete(v); else chosenVerbals.add(v);
+    renderVerbals();
+  });
+
   $('#f_cancel').onclick = closeModal;
   $('#f_save').onclick = () => {
     const title = $('#f_title').value.trim();
@@ -783,7 +854,7 @@ function openNotebookForm() {
     if (!title || !content) { toast('タイトルと内容を入力してください'); return; }
     const now = new Date().toISOString();
     const newEntry = {
-      id: uid(), majorCategory: chosenMajor, minorCategory: chosenMinor || '',
+      id: uid(), majorCategory: chosenMajor, minorCategory: chosenMinor || '', verbalTags: [...chosenVerbals],
       title, history: [{ date: todayStr(), content }], createdAt: now, updatedAt: now
     };
     state.notebook.push(newEntry);
@@ -971,6 +1042,12 @@ function openEpisodeForm(entry) {
 /* ==========================================================
    マイライフタブ（マインドマップ：大カテゴリー→小カテゴリー）
 ========================================================== */
+function refreshCategoryDependentUI() {
+  renderNotebookTab();
+  renderEpisodeTab();
+  renderMyLifeTab();
+}
+
 function renderMyLifeTab() {
   const lc = state.meta.lifeCategories;
   const majors = Object.keys(lc);
@@ -1066,9 +1143,11 @@ function openSettingsScreen(initialSection = 'firebase') {
       <div class="settings-tabs">
         <button type="button" class="settings-tab-btn" id="st_firebase">Firebase接続</button>
         <button type="button" class="settings-tab-btn" id="st_category">カテゴリー管理</button>
+        <button type="button" class="settings-tab-btn" id="st_verbal">言語化分類</button>
       </div>
       <div class="settings-section" id="sec_firebase"></div>
       <div class="settings-section" id="sec_category"></div>
+      <div class="settings-section" id="sec_verbal"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="settings_close">閉じる</button>
       </div>
@@ -1079,14 +1158,18 @@ function openSettingsScreen(initialSection = 'firebase') {
   function showSection(name) {
     $('#st_firebase').classList.toggle('active', name === 'firebase');
     $('#st_category').classList.toggle('active', name === 'category');
+    $('#st_verbal').classList.toggle('active', name === 'verbal');
     $('#sec_firebase').classList.toggle('active', name === 'firebase');
     $('#sec_category').classList.toggle('active', name === 'category');
+    $('#sec_verbal').classList.toggle('active', name === 'verbal');
   }
   $('#st_firebase').onclick = () => showSection('firebase');
   $('#st_category').onclick = () => showSection('category');
+  $('#st_verbal').onclick = () => showSection('verbal');
 
   renderFirebaseSection();
   renderCategorySection();
+  renderVerbalSection();
   showSection(initialSection);
 
   function renderFirebaseSection() {
@@ -1167,16 +1250,18 @@ function openSettingsScreen(initialSection = 'firebase') {
             lc[name] = lc[major]; delete lc[major];
             if (notebookFilterMajor === major) notebookFilterMajor = name;
             if (episodeFilterMajor === major) episodeFilterMajor = name;
-            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+            if (mindmapSelectedMajor === major) mindmapSelectedMajor = name;
+            fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
           }
         };
         block.querySelector('.cat-delete-major').onclick = async () => {
-          const ok = await showConfirm(`「${major}」を削除しますか？このカテゴリーが設定されている記録は、大カテゴリーが空の状態になります。`);
+          const ok = await showConfirm(`「${major}」を削除しますか？マインドマップからも消え、このカテゴリーが設定されている記録は大カテゴリーが空の状態になります。`);
           if (ok) {
             delete lc[major];
-            if (notebookFilterMajor === major) notebookFilterMajor = null;
-            if (episodeFilterMajor === major) episodeFilterMajor = null;
-            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+            if (notebookFilterMajor === major) { notebookFilterMajor = null; notebookFilterMinor = null; }
+            if (episodeFilterMajor === major) { episodeFilterMajor = null; episodeFilterMinor = null; }
+            if (mindmapSelectedMajor === major) mindmapSelectedMajor = null;
+            fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
           }
         };
         $$('.cat-minor-chip', block).forEach(chip => {
@@ -1187,15 +1272,19 @@ function openSettingsScreen(initialSection = 'firebase') {
               const idx = lc[major].indexOf(minor);
               if (idx > -1 && !lc[major].includes(name)) {
                 lc[major][idx] = name;
-                fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+                if (notebookFilterMinor === minor) notebookFilterMinor = name;
+                if (episodeFilterMinor === minor) episodeFilterMinor = name;
+                fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
               }
             }
           };
           chip.querySelector('.cat-delete-minor').onclick = async () => {
-            const ok = await showConfirm(`「#${minor}」を削除しますか？`);
+            const ok = await showConfirm(`「#${minor}」を削除しますか？マインドマップからも消えます。`);
             if (ok) {
               lc[major] = lc[major].filter(x => x !== minor);
-              fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+              if (notebookFilterMinor === minor) notebookFilterMinor = null;
+              if (episodeFilterMinor === minor) episodeFilterMinor = null;
+              fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
             }
           };
         });
@@ -1204,7 +1293,7 @@ function openSettingsScreen(initialSection = 'firebase') {
           if (name) {
             const clean = name.replace(/^#/, '');
             if (!lc[major].includes(clean)) lc[major].push(clean);
-            fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+            fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
           }
         };
       });
@@ -1215,7 +1304,57 @@ function openSettingsScreen(initialSection = 'firebase') {
       const name = await showPrompt('新しい大カテゴリー名を入力してください', '例：趣味');
       if (name && !lc[name]) {
         lc[name] = [];
-        fsSetMeta(); renderCatList(); renderNotebookTab(); renderEpisodeTab();
+        fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
+      }
+    };
+  }
+
+  function renderVerbalSection() {
+    const tags = state.meta.verbalizationTags || [];
+    $('#sec_verbal').innerHTML = `
+      <p class="help-text">カテゴリーとは別軸で、人生手帳の記録に付けられる分類です。マインドマップには表示されませんが、人生手帳タブでの絞り込みに使えます。1件の記録に複数設定できます。</p>
+      <div class="cat-minor-list" id="verbal_list" style="margin-bottom:14px;"></div>
+      <button type="button" class="cat-add-major-btn" id="verbal_add">＋言語化分類を追加</button>
+    `;
+    renderVerbalList();
+    function renderVerbalList() {
+      const tags2 = state.meta.verbalizationTags || [];
+      $('#verbal_list').innerHTML = tags2.length ? tags2.map(v => `
+        <span class="cat-minor-chip" data-verbal="${escapeHtml(v)}">
+          ${escapeHtml(v)}
+          <button type="button" class="verbal-rename" aria-label="名前を変更">✎</button>
+          <button type="button" class="verbal-delete" aria-label="削除">×</button>
+        </span>`).join('') : `<div class="empty-state" style="padding:16px;">まだ言語化分類がありません</div>`;
+      $$('.cat-minor-chip', $('#verbal_list')).forEach(chip => {
+        const v = chip.dataset.verbal;
+        chip.querySelector('.verbal-rename').onclick = async () => {
+          const name = await showPrompt('言語化分類の新しい名前を入力してください', v);
+          if (name && name !== v && !state.meta.verbalizationTags.includes(name)) {
+            const idx = state.meta.verbalizationTags.indexOf(v);
+            state.meta.verbalizationTags[idx] = name;
+            state.notebook.forEach(e => {
+              if (e.verbalTags && e.verbalTags.includes(v)) e.verbalTags = e.verbalTags.map(x => x === v ? name : x);
+            });
+            if (notebookFilterVerbal === v) notebookFilterVerbal = name;
+            fsSetMeta(); renderVerbalList(); renderNotebookTab();
+          }
+        };
+        chip.querySelector('.verbal-delete').onclick = async () => {
+          const ok = await showConfirm(`「${v}」を削除しますか？各記録に付けられたこの分類も外れます。`);
+          if (ok) {
+            state.meta.verbalizationTags = state.meta.verbalizationTags.filter(x => x !== v);
+            state.notebook.forEach(e => { if (e.verbalTags) e.verbalTags = e.verbalTags.filter(x => x !== v); });
+            if (notebookFilterVerbal === v) notebookFilterVerbal = null;
+            fsSetMeta(); renderVerbalList(); renderNotebookTab();
+          }
+        };
+      });
+    }
+    $('#verbal_add').onclick = async () => {
+      const name = await showPrompt('新しい言語化分類名を入力してください', '例：価値観');
+      if (name && !state.meta.verbalizationTags.includes(name)) {
+        state.meta.verbalizationTags.push(name);
+        fsSetMeta(); renderVerbalList();
       }
     };
   }
@@ -1304,6 +1443,10 @@ function initEvents() {
   $('#notebookMinorChips').addEventListener('click', (e) => {
     const btn = e.target.closest('.chip'); if (!btn) return;
     notebookFilterMinor = btn.dataset.minor || null; renderNotebookTab();
+  });
+  $('#notebookVerbalChips').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip'); if (!btn) return;
+    notebookFilterVerbal = btn.dataset.verbal || null; renderNotebookTab();
   });
   $('#notebookList').addEventListener('click', (e) => {
     const item = e.target.closest('.entry-item'); if (!item) return;

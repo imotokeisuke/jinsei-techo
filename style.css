@@ -200,6 +200,8 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 .chip.active { background: var(--primary-strong); color: #fff; }
 .chip.ghost { background: var(--bg-soft); color: var(--text-soft); }
+.chip.ghost.verbal { background: #EFEAF7; color: #8672B0; }
+.chip.ghost.verbal.active { background: #8672B0; color: #fff; }
 
 /* ---------- エントリーリスト（日記／人生手帳共通） ---------- */
 .entry-item {
@@ -221,6 +223,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   background: var(--primary-pale); border-radius: 999px; padding: 3px 10px;
 }
 .tag.minor { background: var(--bg-soft); color: var(--leaf-deep); }
+.tag.verbal { background: #EFEAF7; color: #8672B0; }
 
 .empty-state {
   text-align: center;
@@ -406,11 +409,11 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---------- 設定画面 ---------- */
-.settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.settings-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
 .settings-tab-btn {
   flex: 1; border: none; background: var(--bg-soft); color: var(--text-soft);
-  border-radius: 14px; padding: 10px; font-family: 'Zen Maru Gothic', sans-serif;
-  font-weight: 700; font-size: 13px;
+  border-radius: 14px; padding: 10px 4px; font-family: 'Zen Maru Gothic', sans-serif;
+  font-weight: 700; font-size: 12px;
 }
 .settings-tab-btn.active { background: var(--primary-strong); color: #fff; }
 .settings-section { display: none; }
