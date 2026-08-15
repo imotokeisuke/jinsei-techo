@@ -102,8 +102,29 @@ function clearStoredFirebaseConfig() {
   localStorage.removeItem(FIREBASE_LS_KEY);
 }
 // Firebaseコンソールからコピーした <script> ブロックや firebaseConfig オブジェクトを
-// そのまま貼り付けても読み取れるよう、正規表現で緩く抽出する
+// そのまま貼り付けても読み取れるよう、正規表現で緩く抽出する。
+// また、このアプリが発行する「接続用URL」（1行のURL形式）も読み取れるようにする。
 function extractFirebaseConfigFromText(text) {
+  const trimmed = text.trim();
+
+  // ① 接続用URL形式（例：https://jinsei-techo.app/connect?apiKey=...&projectId=...）
+  if (/^[a-zA-Z0-9.+-]+:\/\//.test(trimmed) && trimmed.includes('apiKey=')) {
+    try {
+      const u = new URL(trimmed);
+      const p = u.searchParams;
+      const cfg = {
+        apiKey: p.get('apiKey') || '',
+        authDomain: p.get('authDomain') || '',
+        projectId: p.get('projectId') || '',
+        storageBucket: p.get('storageBucket') || '',
+        messagingSenderId: p.get('messagingSenderId') || '',
+        appId: p.get('appId') || ''
+      };
+      if (cfg.apiKey && cfg.projectId) return cfg;
+    } catch (e) { /* URLとして不正な場合は下の通常抽出にフォールバック */ }
+  }
+
+  // ② Firebaseコンソールのコードそのまま貼り付け形式
   const grab = (key) => {
     const m = text.match(new RegExp(key + '\\s*:\\s*["\']([^"\']+)["\']'));
     return m ? m[1] : '';
@@ -118,6 +139,14 @@ function extractFirebaseConfigFromText(text) {
   };
   if (!cfg.apiKey || !cfg.projectId) return null;
   return cfg;
+}
+// 逆に、設定オブジェクトから「接続用URL」（1行）を生成する
+function buildConnectUrl(cfg) {
+  const p = new URLSearchParams();
+  ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].forEach(k => {
+    if (cfg[k]) p.set(k, cfg[k]);
+  });
+  return `https://jinsei-techo.app/connect?${p.toString()}`;
 }
 
 /* ---------------- Firebase 初期化＆同期 ---------------- */
@@ -1177,20 +1206,43 @@ function openSettingsScreen(initialSection = 'firebase') {
     const active = getActiveFirebaseConfig();
     const isConnected = db !== null;
     const hasConfig = active.apiKey && active.apiKey !== 'YOUR_API_KEY';
+    const connectUrl = hasConfig ? buildConnectUrl(active) : '';
     $('#sec_firebase').innerHTML = `
       <div class="status-badge">
         <span class="status-dot ${isConnected ? 'connected' : hasConfig ? 'disconnected' : ''}"></span>
         <span>${isConnected ? `接続中：${escapeHtml(active.projectId || '')}` : hasConfig ? '設定はありますが未接続です（保存すると再読み込みされます）' : '未接続：ローカル保存のみで動作中'}</span>
       </div>
-      <p class="help-text">Firebaseコンソールの「プロジェクトの設定」→「マイアプリ」に表示される、firebaseConfigのコード全体（&lt;script&gt;タグごとでも構いません）をそのまま貼り付けてください。</p>
+
+      ${hasConfig ? `
+      <p class="help-text" style="margin-top:2px;">他の端末で同じデータに繋げるための「接続用URL」です。下の入力欄にこれを貼り付けるだけで、その端末も同期されます。</p>
       <div class="form-group">
-        <textarea id="fb_paste" class="form-textarea" style="min-height:150px; font-family: monospace; font-size:12px;" placeholder="const firebaseConfig = {&#10;  apiKey: &quot;...&quot;,&#10;  ...&#10;};"></textarea>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="connect_url_display" class="form-input" readonly value="${escapeHtml(connectUrl)}" style="font-size:11px; font-family:monospace;">
+          <button type="button" class="icon-btn-sm" id="connect_url_copy" style="width:44px;height:44px;flex-shrink:0;" aria-label="コピー"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+      </div>
+      ` : ''}
+
+      <p class="help-text" style="margin-top:${hasConfig ? '4' : '-4'}px;">${hasConfig ? 'この端末を別のプロジェクトに繋ぎ直す場合は、下に新しい接続用URL（または、FirebaseコンソールのfirebaseConfigコード全体）を貼り付けてください。' : 'Firebaseコンソールの「プロジェクトの設定」→「マイアプリ」に表示される、firebaseConfigのコード全体（&lt;script&gt;タグごとでも構いません）を貼り付けてください。'}</p>
+      <div class="form-group">
+        <textarea id="fb_paste" class="form-textarea" style="min-height:${hasConfig ? '70' : '150'}px; font-family: monospace; font-size:12px;" placeholder="https://jinsei-techo.app/connect?apiKey=...&#10;または firebaseConfig のコード全体"></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="fb_save">保存して接続</button>
       </div>
       ${stored ? '<div class="modal-actions"><button class="btn btn-danger" id="fb_clear">アプリ内の設定を削除してデフォルトに戻す</button></div>' : ''}
     `;
+    const copyBtn = $('#connect_url_copy');
+    if (copyBtn) copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(connectUrl);
+        toast('コピーしました');
+      } catch (e) {
+        const inp = $('#connect_url_display');
+        inp.removeAttribute('readonly'); inp.focus(); inp.select();
+        toast('選択状態にしました。手動でコピーしてください');
+      }
+    };
     $('#fb_save').onclick = () => {
       const text = $('#fb_paste').value;
       const cfg = extractFirebaseConfigFromText(text);
