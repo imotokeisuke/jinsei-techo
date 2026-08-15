@@ -1233,7 +1233,7 @@ function openSettingsScreen(initialSection = 'firebase') {
 
       <p class="help-text" style="margin-top:${hasConfig ? '4' : '-4'}px;">${hasConfig ? 'この端末を別のプロジェクトに繋ぎ直す場合は、下に新しい接続用URL（または、FirebaseコンソールのfirebaseConfigコード全体）を貼り付けてください。' : 'Firebaseコンソールの「プロジェクトの設定」→「マイアプリ」に表示される、firebaseConfigのコード全体（&lt;script&gt;タグごとでも構いません）を貼り付けてください。'}</p>
       <div class="form-group">
-        <textarea id="fb_paste" class="form-textarea" style="min-height:${hasConfig ? '70' : '150'}px; font-family: monospace; font-size:12px;" placeholder="https://jinsei-techo.app/connect?apiKey=...&#10;または firebaseConfig のコード全体"></textarea>
+        <textarea id="fb_paste" class="form-textarea" style="min-height:${hasConfig ? '70' : '150'}px; font-family: monospace; font-size:12px;" placeholder="https://jinsei-techo.app/connect?apiKey=... （設定画面の「接続用URL」をコピー）&#10;または firebaseConfig のコード全体&#10;※データベースのURLだけの貼り付けは不可"></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="fb_save">保存して接続</button>
@@ -1252,9 +1252,16 @@ function openSettingsScreen(initialSection = 'firebase') {
       }
     };
     $('#fb_save').onclick = () => {
-      const text = $('#fb_paste').value;
+      const text = $('#fb_paste').value.trim();
       const cfg = extractFirebaseConfigFromText(text);
-      if (!cfg) { toast('設定を読み取れませんでした。貼り付け内容をご確認ください'); return; }
+      if (!cfg) {
+        if (/firebasedatabase\.app/.test(text) && !/apiKey/i.test(text)) {
+          toast('データベースのURLだけでは接続できません。「接続用URL」（apiKeyを含む）か、設定コード全体を貼り付けてください');
+        } else {
+          toast('設定を読み取れませんでした。貼り付け内容をご確認ください');
+        }
+        return;
+      }
       saveStoredFirebaseConfig(cfg);
       toast('保存しました。再読み込みします...');
       setTimeout(() => location.reload(), 700);
