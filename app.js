@@ -4,7 +4,7 @@ import { firebaseConfig, COLLECTION_PREFIX } from './firebase-config.js';
    人生手帳 app.js
    - state: メモリ上のアプリ状態（描画は常にこれを元に行う）
    - ローカルキャッシュ (localStorage) から即時描画 → 体感速度を担保
-   - Firestore onSnapshot でリアルタイム同期し、機種変してもデータが残る
+   - Realtime Database の onValue でリアルタイム同期し、機種変してもデータが残る
 ========================================================== */
 
 const LS_KEY = 'jinseiTecho_cache_v1';
@@ -115,6 +115,7 @@ function extractFirebaseConfigFromText(text) {
       const cfg = {
         apiKey: p.get('apiKey') || '',
         authDomain: p.get('authDomain') || '',
+        databaseURL: p.get('databaseURL') || '',
         projectId: p.get('projectId') || '',
         storageBucket: p.get('storageBucket') || '',
         messagingSenderId: p.get('messagingSenderId') || '',
@@ -132,6 +133,7 @@ function extractFirebaseConfigFromText(text) {
   const cfg = {
     apiKey: grab('apiKey'),
     authDomain: grab('authDomain'),
+    databaseURL: grab('databaseURL'),
     projectId: grab('projectId'),
     storageBucket: grab('storageBucket'),
     messagingSenderId: grab('messagingSenderId'),
@@ -143,13 +145,13 @@ function extractFirebaseConfigFromText(text) {
 // 逆に、設定オブジェクトから「接続用URL」（1行）を生成する
 function buildConnectUrl(cfg) {
   const p = new URLSearchParams();
-  ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].forEach(k => {
+  ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].forEach(k => {
     if (cfg[k]) p.set(k, cfg[k]);
   });
   return `https://jinsei-techo.app/connect?${p.toString()}`;
 }
 
-/* ---------------- Firebase 初期化＆同期 ---------------- */
+/* ---------------- Firebase 初期化＆同期（Realtime Database） ---------------- */
 function getActiveFirebaseConfig() {
   return getStoredFirebaseConfig() || firebaseConfig;
 }
@@ -159,49 +161,55 @@ async function initFirebase() {
     toast('Firebase未設定：ローカル保存のみで動作中');
     return;
   }
+  if (!cfg.databaseURL) {
+    toast('Realtime DatabaseのURLが未設定です：ローカル保存のみで動作中');
+    return;
+  }
   try {
-    const [{ initializeApp }, firestoreMod] = await Promise.all([
+    const [{ initializeApp }, dbMod] = await Promise.all([
       import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js'),
-      import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js')
+      import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js')
     ]);
-    fsApi = firestoreMod;
+    fsApi = dbMod;
     const app = initializeApp(cfg);
-    db = fsApi.initializeFirestore(app, {
-      localCache: fsApi.persistentLocalCache({ tabManager: fsApi.persistentSingleTabManager() })
-    });
+    db = fsApi.getDatabase(app, cfg.databaseURL);
 
-    const metaRef = fsApi.doc(db, COLLECTION_PREFIX + 'meta', 'config');
-    fsApi.onSnapshot(metaRef, snap => {
-      if (snap.exists()) {
-        const d = snap.data();
+    const metaRef = fsApi.ref(db, COLLECTION_PREFIX + 'meta');
+    fsApi.onValue(metaRef, snap => {
+      const d = snap.val();
+      if (d) {
         state.meta.appTitle = d.appTitle || state.meta.appTitle;
         state.meta.diaryCategories = d.diaryCategories || state.meta.diaryCategories;
         state.meta.lifeCategories = d.lifeCategories || state.meta.lifeCategories;
+        state.meta.verbalizationTags = d.verbalizationTags || state.meta.verbalizationTags;
       } else {
-        fsApi.setDoc(metaRef, state.meta).catch(() => {});
+        fsApi.set(metaRef, state.meta).catch(() => {});
       }
       saveLocal();
       renderHeader();
       renderCurrentTab();
-    }, () => toast('Firestoreに接続できません（ルールやプロジェクト設定をご確認ください）'));
+    }, () => toast('Realtime Databaseに接続できません（ルールやURLをご確認ください）'));
 
-    const diaryCol = fsApi.collection(db, COLLECTION_PREFIX + 'diary');
-    fsApi.onSnapshot(diaryCol, snap => {
-      state.diary = snap.docs.map(d => d.data());
+    const diaryRef = fsApi.ref(db, COLLECTION_PREFIX + 'diary');
+    fsApi.onValue(diaryRef, snap => {
+      const val = snap.val() || {};
+      state.diary = Object.values(val);
       saveLocal();
       if (currentTab === 'diary') renderCurrentTab();
     });
 
-    const notebookCol = fsApi.collection(db, COLLECTION_PREFIX + 'notebook');
-    fsApi.onSnapshot(notebookCol, snap => {
-      state.notebook = snap.docs.map(d => d.data());
+    const notebookRef = fsApi.ref(db, COLLECTION_PREFIX + 'notebook');
+    fsApi.onValue(notebookRef, snap => {
+      const val = snap.val() || {};
+      state.notebook = Object.values(val);
       saveLocal();
       if (currentTab === 'notebook' || currentTab === 'mylife') renderCurrentTab();
     });
 
-    const episodeCol = fsApi.collection(db, COLLECTION_PREFIX + 'episode');
-    fsApi.onSnapshot(episodeCol, snap => {
-      state.episode = snap.docs.map(d => d.data());
+    const episodeRef = fsApi.ref(db, COLLECTION_PREFIX + 'episode');
+    fsApi.onValue(episodeRef, snap => {
+      const val = snap.val() || {};
+      state.episode = Object.values(val);
       saveLocal();
       if (currentTab === 'episode') renderCurrentTab();
     });
@@ -217,21 +225,21 @@ async function fsSet(collName, docObj) {
   saveLocal();
   if (db && fsApi) {
     try {
-      await fsApi.setDoc(fsApi.doc(db, COLLECTION_PREFIX + collName, docObj.id), docObj);
+      await fsApi.set(fsApi.ref(db, COLLECTION_PREFIX + collName + '/' + docObj.id), docObj);
     } catch (e) { console.error(e); toast('同期エラー：オフラインで保存しました'); }
   }
 }
 async function fsDelete(collName, id) {
   saveLocal();
   if (db && fsApi) {
-    try { await fsApi.deleteDoc(fsApi.doc(db, COLLECTION_PREFIX + collName, id)); }
+    try { await fsApi.remove(fsApi.ref(db, COLLECTION_PREFIX + collName + '/' + id)); }
     catch (e) { console.error(e); }
   }
 }
 async function fsSetMeta() {
   saveLocal();
   if (db && fsApi) {
-    try { await fsApi.setDoc(fsApi.doc(db, COLLECTION_PREFIX + 'meta', 'config'), state.meta); }
+    try { await fsApi.set(fsApi.ref(db, COLLECTION_PREFIX + 'meta'), state.meta); }
     catch (e) { console.error(e); }
   }
 }

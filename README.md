@@ -139,3 +139,25 @@ jinsei-techo/
   - 1台目でFirebaseの設定（コンソールのfirebaseConfig）を貼り付けて接続すると、自動的に「接続用URL」（1行）が生成され、コピーできます
   - 2台目以降の端末では、この接続用URLを設定画面の入力欄に貼り付けるだけで、同じFirebaseプロジェクトに接続できます（コンソールのコード全体を貼る必要はありません）
   - 引き続き、firebaseConfigのコード全体を貼り付ける方法もそのまま使えます（自動で判別されます）
+
+## 更新履歴（Realtime Databaseへ切り替え）
+
+データの保存先を Cloud Firestore から **Firebase Realtime Database** に変更しました。
+
+### セットアップの変更点
+
+- Firestoreの「データベースの作成」は不要になりました
+- 代わりに、Firebaseコンソール →「Realtime Database」→「データベースを作成」を行ってください
+- ルールは以下のJSON形式に置き換えてください（同梱の `database.rules.json` の中身と同じです）：
+
+```json
+{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}
+```
+
+- `firebase-config.js` に `databaseURL`（例：`https://jinsei-techo-default-rtdb.asia-southeast1.firebasedatabase.app`）が追加で必要です。Firebaseコンソールの設定画面、またはRealtime Databaseのトップ画面に表示されているURLをコピーしてください
+- アプリ内の「設定 → Firebase接続」画面での貼り付け・接続用URLの仕組みも、databaseURLを含めて引き続き使えます
