@@ -1374,6 +1374,77 @@ function openSettingsScreen(initialSection = 'firebase') {
         fsSetMeta(); renderCatList(); refreshCategoryDependentUI();
       }
     };
+
+    renderDiaryCatSection();
+  }
+
+  function renderDiaryCatSection() {
+    // sec_category の末尾に「日記のカテゴリー」ブロックを追加する（初回のみ生成）
+    let wrap = $('#diary_cat_section');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'diary_cat_section';
+      wrap.innerHTML = `
+        <div class="section-title" style="margin-top:22px;">日記のカテゴリー</div>
+        <p class="help-text">「日記」タブで使うカテゴリーです（人生手帳・エピソードとは別です）。</p>
+        <div class="cat-minor-list" id="diary_cat_list" style="margin-bottom:14px;"></div>
+        <button type="button" class="cat-add-major-btn" id="diary_cat_add">＋日記カテゴリーを追加</button>
+      `;
+      $('#sec_category').appendChild(wrap);
+    }
+    renderDiaryCatList();
+    $('#diary_cat_add').onclick = async () => {
+      const name = await showPrompt('新しい日記カテゴリー名を入力してください', '例：健康');
+      if (name) {
+        const clean = name.replace(/^#/, '');
+        if (!state.meta.diaryCategories.includes(clean)) {
+          state.meta.diaryCategories.push(clean);
+          fsSetMeta(); renderDiaryCatList(); renderDiaryTab();
+        }
+      }
+    };
+
+    function renderDiaryCatList() {
+      const cats = state.meta.diaryCategories || [];
+      $('#diary_cat_list').innerHTML = cats.length ? cats.map(c => `
+        <span class="cat-minor-chip" data-cat="${escapeHtml(c)}">
+          #${escapeHtml(c)}
+          <button type="button" class="dcat-rename" aria-label="名前を変更">✎</button>
+          <button type="button" class="dcat-delete" aria-label="削除">×</button>
+        </span>`).join('') : `<div class="empty-state" style="padding:16px;">まだ日記カテゴリーがありません</div>`;
+      $$('.cat-minor-chip', $('#diary_cat_list')).forEach(chip => {
+        const c = chip.dataset.cat;
+        chip.querySelector('.dcat-rename').onclick = async () => {
+          const name = await showPrompt('日記カテゴリーの新しい名前を入力してください', c);
+          if (name && name !== c && !state.meta.diaryCategories.includes(name)) {
+            const idx = state.meta.diaryCategories.indexOf(c);
+            state.meta.diaryCategories[idx] = name;
+            state.diary.forEach(e => {
+              if (e.categories && e.categories.includes(c)) {
+                e.categories = e.categories.map(x => x === c ? name : x);
+                fsSet('diary', e);
+              }
+            });
+            if (diaryFilterCat === c) diaryFilterCat = name;
+            fsSetMeta(); renderDiaryCatList(); renderDiaryTab();
+          }
+        };
+        chip.querySelector('.dcat-delete').onclick = async () => {
+          const ok = await showConfirm(`「#${c}」を削除しますか？各日記に付けられたこのカテゴリーも外れます。`);
+          if (ok) {
+            state.meta.diaryCategories = state.meta.diaryCategories.filter(x => x !== c);
+            state.diary.forEach(e => {
+              if (e.categories && e.categories.includes(c)) {
+                e.categories = e.categories.filter(x => x !== c);
+                fsSet('diary', e);
+              }
+            });
+            if (diaryFilterCat === c) diaryFilterCat = null;
+            fsSetMeta(); renderDiaryCatList(); renderDiaryTab();
+          }
+        };
+      });
+    }
   }
 
   function renderVerbalSection() {

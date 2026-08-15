@@ -161,3 +161,9 @@ jinsei-techo/
 
 - `firebase-config.js` に `databaseURL`（例：`https://jinsei-techo-default-rtdb.asia-southeast1.firebasedatabase.app`）が追加で必要です。Firebaseコンソールの設定画面、またはRealtime Databaseのトップ画面に表示されているURLをコピーしてください
 - アプリ内の「設定 → Firebase接続」画面での貼り付け・接続用URLの仕組みも、databaseURLを含めて引き続き使えます
+
+## 更新履歴（日記カテゴリーの編集・削除）
+
+- 設定 →「カテゴリー管理」画面に「日記のカテゴリー」セクションを追加しました
+  - 日記タブで使うカテゴリー（人生手帳・エピソードとは別）を、追加・名前変更・削除できます
+  - 名前を変更／削除すると、既存の日記に付いているタグも自動的に追従します
