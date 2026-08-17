@@ -62,6 +62,31 @@ function episodeSortKey(ep) {
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// 写真をリサイズ・圧縮してdataURL化する（同期を遅くしないよう、なるべく小さく保つ）
+function readAndCompressImage(file, maxDim = 1000, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read error'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('image error'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else { width = Math.round(width * maxDim / height); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 function toast(msg) {
   const el = $('#toast');
   el.textContent = msg;
@@ -439,6 +464,17 @@ function openDiaryForm(entry) {
           <button type="button" class="tag-option add-new" id="f_add_cat">＋新しいカテゴリー</button>
         </div>
       </div>
+      <div class="form-group">
+        <button type="button" class="date-type-btn" id="f_also_episode_btn" style="width:100%;">＋この内容をエピソードにも登録する</button>
+        <div id="f_episode_extra" style="display:none; margin-top:12px;">
+          <label class="form-label">エピソードの大カテゴリー</label>
+          <div class="tag-select-row" id="f_episode_majors"></div>
+          <div id="f_episode_minor_group" style="display:none; margin-top:10px;">
+            <label class="form-label">小カテゴリー（任意）</label>
+            <div class="tag-select-row" id="f_episode_minors"></div>
+          </div>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="f_cancel">キャンセル</button>
         ${entry ? '<button class="btn btn-danger" id="f_delete">削除</button>' : ''}
@@ -446,6 +482,38 @@ function openDiaryForm(entry) {
       </div>
     </div>`;
   openModal();
+  let alsoEpisode = false;
+  let epMajor = null, epMinor = null;
+  const lc = state.meta.lifeCategories;
+
+  $('#f_also_episode_btn').onclick = () => {
+    alsoEpisode = !alsoEpisode;
+    $('#f_also_episode_btn').classList.toggle('selected', alsoEpisode);
+    $('#f_episode_extra').style.display = alsoEpisode ? 'block' : 'none';
+  };
+  function renderEpMinors() {
+    const group = $('#f_episode_minor_group');
+    if (!epMajor) { group.style.display = 'none'; return; }
+    group.style.display = 'block';
+    const minors = lc[epMajor] || [];
+    $('#f_episode_minors').innerHTML = minors.map(m => `<button type="button" class="tag-option ${epMinor === m ? 'selected' : ''}" data-minor="${escapeHtml(m)}">#${escapeHtml(m)}</button>`).join('');
+    $('#f_episode_minors').onclick = (ev) => {
+      const btn = ev.target.closest('.tag-option'); if (!btn) return;
+      epMinor = (epMinor === btn.dataset.minor) ? null : btn.dataset.minor;
+      renderEpMinors();
+    };
+  }
+  function renderEpMajors() {
+    $('#f_episode_majors').innerHTML = Object.keys(lc).map(m => `<button type="button" class="tag-option ${epMajor === m ? 'selected' : ''}" data-major="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join('');
+    $('#f_episode_majors').onclick = (ev) => {
+      const btn = ev.target.closest('.tag-option'); if (!btn) return;
+      epMajor = (epMajor === btn.dataset.major) ? null : btn.dataset.major;
+      epMinor = null;
+      renderEpMajors(); renderEpMinors();
+    };
+  }
+  renderEpMajors(); renderEpMinors();
+
   const chosenCats = new Set(selected);
   $('#f_cats').addEventListener('click', async (ev) => {
     const btn = ev.target.closest('.tag-option');
@@ -486,6 +554,7 @@ function openDiaryForm(entry) {
     const title = $('#f_title').value.trim();
     const body = $('#f_body').value.trim();
     if (!title && !body) { toast('タイトルか本文を入力してください'); return; }
+    if (alsoEpisode && !epMajor) { toast('エピソードにも登録する場合は、大カテゴリーを選択してください'); return; }
     const now = new Date().toISOString();
     if (entry) {
       Object.assign(entry, { date, title, body, categories: [...chosenCats], updatedAt: now });
@@ -495,7 +564,17 @@ function openDiaryForm(entry) {
       state.diary.push(newEntry);
       fsSet('diary', newEntry);
     }
-    closeModal(); renderDiaryTab(); toast('保存しました');
+    if (alsoEpisode && epMajor) {
+      const epEntry = {
+        id: uid(), majorCategory: epMajor, minorCategory: epMinor || '',
+        title: title || '（無題）', content: body, dateType: 'full', dateValue: date,
+        photos: [], createdAt: now, updatedAt: now
+      };
+      state.episode.push(epEntry);
+      fsSet('episode', epEntry);
+    }
+    closeModal(); renderDiaryTab();
+    toast(alsoEpisode ? '日記とエピソードに保存しました' : '保存しました');
   };
 }
 
@@ -933,6 +1012,7 @@ function renderEpisodeTab() {
         <div class="entry-top-row"><span class="entry-date">${formatEpisodeDateLabel(e)}</span></div>
         <div class="entry-title">${escapeHtml(e.title)}</div>
         <div class="entry-body">${escapeHtml(e.content)}</div>
+        ${(e.photos && e.photos.length) ? `<div class="entry-photo-strip">${e.photos.map(src => `<img src="${src}" loading="lazy">`).join('')}</div>` : ''}
         <div class="entry-tags">
           <span class="tag">${escapeHtml(e.majorCategory)}</span>
           ${e.minorCategory ? `<span class="tag minor">#${escapeHtml(e.minorCategory)}</span>` : ''}
@@ -979,6 +1059,11 @@ function openEpisodeForm(entry) {
         <label class="form-label">エピソード</label>
         <textarea id="f_content" class="form-textarea" placeholder="語りたい出来事、そのときの気持ち...">${escapeHtml(entry?.content || '')}</textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label">写真</label>
+        <div class="photo-strip" id="f_photo_strip"></div>
+        <input type="file" id="f_photo_input" accept="image/*" multiple style="display:none;">
+      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="f_cancel">キャンセル</button>
         ${entry ? '<button class="btn btn-danger" id="f_delete">削除</button>' : ''}
@@ -986,6 +1071,43 @@ function openEpisodeForm(entry) {
       </div>
     </div>`;
   openModal();
+
+  const photosDraft = entry && entry.photos ? [...entry.photos] : [];
+  function renderPhotoStrip() {
+    $('#f_photo_strip').innerHTML =
+      photosDraft.map((src, i) => `
+        <div class="photo-thumb" data-i="${i}">
+          <img src="${src}">
+          <button type="button" class="photo-remove" aria-label="削除">×</button>
+        </div>`).join('') +
+      `<button type="button" class="photo-add-btn" id="f_photo_add">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+        追加
+      </button>`;
+    $$('.photo-thumb .photo-remove', $('#f_photo_strip')).forEach(btn => {
+      btn.onclick = () => {
+        const i = parseInt(btn.closest('.photo-thumb').dataset.i);
+        photosDraft.splice(i, 1);
+        renderPhotoStrip();
+      };
+    });
+    $('#f_photo_add').onclick = () => $('#f_photo_input').click();
+  }
+  renderPhotoStrip();
+  $('#f_photo_input').addEventListener('change', async (ev) => {
+    const files = Array.from(ev.target.files || []);
+    if (!files.length) return;
+    toast('写真を読み込んでいます...');
+    for (const file of files) {
+      try {
+        const dataUrl = await readAndCompressImage(file);
+        photosDraft.push(dataUrl);
+      } catch (e) { console.error(e); }
+    }
+    ev.target.value = '';
+    renderPhotoStrip();
+    toast('写真を追加しました');
+  });
 
   function renderDateType() {
     $('#dt_full').classList.toggle('selected', dateType === 'full');
@@ -1065,10 +1187,10 @@ function openEpisodeForm(entry) {
     if (dateType === 'year' && !/^\d{1,4}$/.test(dateValue)) { toast('年は数字で入力してください'); return; }
     const now = new Date().toISOString();
     if (entry) {
-      Object.assign(entry, { majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, updatedAt: now });
+      Object.assign(entry, { majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, photos: photosDraft, updatedAt: now });
       fsSet('episode', entry);
     } else {
-      const newEntry = { id: uid(), majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, createdAt: now, updatedAt: now };
+      const newEntry = { id: uid(), majorCategory: chosenMajor, minorCategory: chosenMinor || '', title, content, dateType, dateValue, photos: photosDraft, createdAt: now, updatedAt: now };
       state.episode.push(newEntry);
       fsSet('episode', newEntry);
     }

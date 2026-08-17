@@ -489,4 +489,22 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .mini-message { font-size: 14.5px; line-height: 1.7; color: var(--text); margin-bottom: 14px; font-weight: 500; }
 .mini-actions { display: flex; gap: 10px; }
 
+/* ---------- 写真ストリップ（エピソード） ---------- */
+.photo-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px; }
+.photo-thumb { position: relative; width: 76px; height: 76px; flex-shrink: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-thumb .photo-remove {
+  position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(74,55,40,0.6); color: #fff; border: none; font-size: 12px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-add-btn {
+  width: 76px; height: 76px; flex-shrink: 0; border-radius: 14px;
+  border: 2px dashed var(--primary-pale-2); background: none; color: var(--primary-deep);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 10.5px; font-weight: 700; font-family: 'Zen Maru Gothic', sans-serif;
+}
+.entry-photo-strip { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; }
+.entry-photo-strip img { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; box-shadow: var(--shadow-sm); }
+
 ::-webkit-scrollbar { width: 0; height: 0; }
