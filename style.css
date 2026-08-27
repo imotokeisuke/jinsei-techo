@@ -337,12 +337,28 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   padding: 14px 16px;
   margin: 6px 0 4px;
   box-shadow: var(--shadow-sm);
+  cursor: pointer;
 }
+.tree-widget:active { transform: scale(0.985); }
 .tree-widget svg { width: 62px; height: 62px; flex-shrink: 0; }
 .tree-info { flex: 1; }
 .tree-stage-label { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 14px; color: var(--primary-deep); }
 .tree-sub-label { font-size: 12px; color: var(--text-soft); margin-top: 3px; }
 .tree-next { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.tree-tap-hint { font-size: 10px; color: var(--text-faint); margin-top: 4px; }
+
+/* ---------- 育つ木コレクション ---------- */
+.tree-collection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.tree-collect-card {
+  background: var(--bg-soft); border-radius: var(--radius-md); padding: 14px 10px;
+  text-align: center; box-shadow: var(--shadow-sm);
+}
+.tree-collect-card.locked { background: #F3EEE6; }
+.tree-collect-icon { width: 64px; height: 64px; margin: 0 auto 8px; }
+.tree-collect-icon svg { width: 100%; height: 100%; }
+.tree-collect-label { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 12.5px; color: var(--text); }
+.tree-collect-card.locked .tree-collect-label { color: var(--text-faint); }
+.tree-collect-req { font-size: 10.5px; color: var(--text-soft); margin-top: 3px; }
 .calendar-open-btn {
   border: none; background: var(--card); box-shadow: var(--shadow-sm);
   border-radius: 14px; width: 42px; height: 42px; flex-shrink: 0;
@@ -375,7 +391,28 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   padding: 10px;
   margin-top: 8px;
 }
-.mindmap-hint { text-align: center; font-size: 11.5px; color: var(--text-faint); padding: 4px 0 10px; }
+.mindmap-viewport {
+  position: relative;
+  width: 100%;
+  height: 360px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--bg-soft);
+  touch-action: none;
+  cursor: grab;
+}
+.mindmap-viewport:active { cursor: grabbing; }
+.mindmap-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+.mindmap-canvas svg { display: block; }
+.mm-node { cursor: pointer; }
+.mindmap-controls { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.mm-zoom-btn {
+  width: 36px; height: 36px; border-radius: 12px; border: none;
+  background: var(--bg-soft); box-shadow: var(--shadow-sm); color: var(--primary-deep);
+  font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.mm-zoom-btn:active { transform: scale(0.92); }
+.mindmap-hint { text-align: center; font-size: 11px; color: var(--text-faint); padding: 8px 6px 2px; line-height: 1.6; }
 .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .summary-card { background: var(--card); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 14px; }
 .summary-num { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 900; font-size: 22px; color: var(--primary-deep); }

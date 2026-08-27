@@ -40,12 +40,13 @@
 
     <!-- 日記タブ -->
     <div class="tab-panel active" id="panel-diary">
-      <div class="tree-widget">
+      <div class="tree-widget" id="treeWidgetBtn" role="button" aria-label="育つ木コレクションを見る">
         <div id="treeSvgWrap"></div>
         <div class="tree-info">
           <div class="tree-stage-label" id="treeStageLabel"></div>
           <div class="tree-sub-label" id="treeSubLabel"></div>
           <div class="tree-next" id="treeNextLabel"></div>
+          <div class="tree-tap-hint">タップしてコレクションを見る</div>
         </div>
       </div>
       <div class="search-row">
@@ -80,8 +81,17 @@
     <div class="tab-panel" id="panel-mylife">
       <div class="section-title" style="margin-top:14px;">わたしのマインドマップ</div>
       <div class="mindmap-wrap">
-        <div id="mindmapSvgWrap"></div>
-        <div class="mindmap-hint">円をタップすると、関連する記録が見られます</div>
+        <div class="mindmap-viewport" id="mindmapViewport">
+          <div id="mindmapSvgWrap" class="mindmap-canvas"></div>
+        </div>
+        <div class="mindmap-controls">
+          <button type="button" class="mm-zoom-btn" id="mmZoomOut" aria-label="縮小">−</button>
+          <button type="button" class="mm-zoom-btn" id="mmZoomReset" aria-label="表示をリセット">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button type="button" class="mm-zoom-btn" id="mmZoomIn" aria-label="拡大">＋</button>
+        </div>
+        <div class="mindmap-hint">円をタップすると関連する記録が見られます／指2本やホイールで拡大・縮小できます</div>
       </div>
       <div class="summary-grid" id="mylifeSummary"></div>
       <div id="mylifeFilteredList" style="margin-top:6px;"></div>

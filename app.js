@@ -33,6 +33,7 @@ let episodeSearch = '';
 let episodeFilterMajor = null;
 let episodeFilterMinor = null;
 let mindmapSelectedMajor = null;
+let mmTransform = null; // { scale, tx, ty, w, h } マインドマップのパン・ズーム状態を再描画間で保持
 let calCursor = new Date();
 let db = null;
 let fsApi = null;
@@ -313,13 +314,21 @@ function finishEditTitle() {
 /* ==========================================================
    育つ木ウィジェット（日記のモチベーション施策）
 ========================================================== */
+const TREE_STAGES = [
+  { stage: 0, label: 'たね', threshold: 0, subUnlocked: 'はじめての日記を書いてみましょう' },
+  { stage: 1, label: 'ふたば', threshold: 1, subUnlocked: '芽が出ました' },
+  { stage: 2, label: '芽吹き', threshold: 5, subUnlocked: '葉が増えてきました' },
+  { stage: 3, label: '若木', threshold: 15, subUnlocked: '枝葉が茂ってきました' },
+  { stage: 4, label: '花咲く木', threshold: 30, subUnlocked: '花が咲きはじめました' },
+  { stage: 5, label: 'オレンジが実る木', threshold: 60, subUnlocked: '豊かに実った日々です' }
+];
 function getTreeStage(count) {
-  if (count >= 60) return { stage: 5, label: 'オレンジが実る木', sub: `${count}件の記録。豊かに実った日々です`, next: null };
-  if (count >= 30) return { stage: 4, label: '花咲く木', sub: `${count}件の記録。花が咲きはじめました`, next: 60 - count };
-  if (count >= 15) return { stage: 3, label: '若木', sub: `${count}件の記録。枝葉が茂ってきました`, next: 30 - count };
-  if (count >= 5) return { stage: 2, label: '芽吹き', sub: `${count}件の記録。葉が増えてきました`, next: 15 - count };
-  if (count >= 1) return { stage: 1, label: 'ふたば', sub: `${count}件の記録。芽が出ました`, next: 5 - count };
-  return { stage: 0, label: 'たね', sub: 'はじめての日記を書いてみましょう', next: 1 };
+  let current = TREE_STAGES[0];
+  for (const s of TREE_STAGES) { if (count >= s.threshold) current = s; }
+  const idx = TREE_STAGES.indexOf(current);
+  const next = TREE_STAGES[idx + 1];
+  const sub = current.stage === 0 && count === 0 ? current.subUnlocked : `${count}件の記録。${current.subUnlocked}`;
+  return { stage: current.stage, label: current.label, sub, next: next ? next.threshold - count : null };
 }
 function treeSVG(stage) {
   const leaf = (x, y, r, rot) => `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 0.62}" fill="#8FBC8F" transform="rotate(${rot} ${x} ${y})"/>`;
@@ -357,12 +366,45 @@ function treeSVG(stage) {
   }
   return `<svg viewBox="0 0 100 100"><ellipse cx="50" cy="90" rx="28" ry="5" fill="#FFE0C2"/>${trunk}${crown}${deco}</svg>`;
 }
+// まだ解禁されていない段階のシークレット表示
+function lockedTreeSVG() {
+  return `<svg viewBox="0 0 100 100">
+    <ellipse cx="50" cy="90" rx="28" ry="5" fill="#F0E6DA"/>
+    <circle cx="50" cy="55" r="26" fill="#EDE2D3"/>
+    <text x="50" y="65" text-anchor="middle" font-size="30" font-weight="700" fill="#C8B9A6" font-family="'Zen Maru Gothic'">？</text>
+  </svg>`;
+}
 function renderTreeWidget() {
   const info = getTreeStage(state.diary.length);
   $('#treeSvgWrap').innerHTML = treeSVG(info.stage);
   $('#treeStageLabel').textContent = info.label;
   $('#treeSubLabel').textContent = info.sub;
   $('#treeNextLabel').textContent = info.next ? `次の変化まであと ${info.next} 件` : '';
+}
+
+/* ---------------- 育つ木コレクション（過去の姿をコレクション表示） ---------------- */
+function openTreeCollection() {
+  const count = state.diary.length;
+  $('#modalArea').innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">育つ木コレクション</div>
+      <p class="help-text">日記を書くごとに木が育ちます。まだ見ぬ姿は？で隠れています。</p>
+      <div class="tree-collection-grid" id="tree_collection_grid"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="tc_close">閉じる</button>
+      </div>
+    </div>`;
+  $('#tree_collection_grid').innerHTML = TREE_STAGES.map(s => {
+    const unlocked = count >= s.threshold;
+    return `<div class="tree-collect-card ${unlocked ? '' : 'locked'}">
+      <div class="tree-collect-icon">${unlocked ? treeSVG(s.stage) : lockedTreeSVG()}</div>
+      <div class="tree-collect-label">${unlocked ? escapeHtml(s.label) : '？？？'}</div>
+      <div class="tree-collect-req">${unlocked ? `日記 ${s.threshold}件で解禁 済` : `日記 ${s.threshold}件で解禁`}</div>
+    </div>`;
+  }).join('');
+  openModal();
+  $('#tc_close').onclick = closeModal;
 }
 
 /* ---------------- 足あとカレンダー（葉っぱスタンプ） ---------------- */
@@ -1212,41 +1254,52 @@ function renderMyLifeTab() {
   const majors = Object.keys(lc);
   const countFor = (major, minor) => state.notebook.filter(e => e.majorCategory === major && (!minor || e.minorCategory === minor)).length;
 
-  const W = 340, H = 360, cx = W / 2, cy = H / 2 - 6;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;">`;
+  // カテゴリー数が増えるほどキャンバス自体を広げ、パン・ピンチズームで見られるようにする
+  const baseSize = 340;
+  const growth = Math.max(0, majors.length - 3) * 70 + Object.values(lc).reduce((a, m) => a + Math.max(0, m.length - 1) * 18, 0);
+  const W = baseSize + growth, H = baseSize + growth;
+  const cx = W / 2, cy = H / 2;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
 
   const palette = ['#FFA366', '#8FBC8F', '#F2B880', '#7FB3B3', '#E29BC0', '#C9A66B', '#9AB0D9'];
-  const R1 = 96, R2 = 56, GAP_ANGLE = 0.6;
+  const R1 = Math.min(150, 90 + majors.length * 6);
+  const R2 = 58;
+  const sectorAngle = (Math.PI * 2) / Math.max(majors.length, 1);
+  const maxSpread = sectorAngle * 0.72; // 隣の大カテゴリーの領域を侵食しないよう自分のセクター内に収める
+  const GAP_ANGLE = 0.6;
 
   majors.forEach((major, i) => {
     const angle = (i / Math.max(majors.length, 1)) * Math.PI * 2 - Math.PI / 2;
     const mx = cx + Math.cos(angle) * R1, my = cy + Math.sin(angle) * R1;
     const count = countFor(major);
-    const r = Math.min(28, 14 + Math.sqrt(count) * 5.5);
+    const r = Math.min(26, 13 + Math.sqrt(count) * 5);
     const color = palette[i % palette.length];
     const selected = mindmapSelectedMajor === major;
 
-    svg += `<line x1="${cx}" y1="${cy}" x2="${mx}" y2="${my}" stroke="${color}" stroke-width="2.5" opacity="0.45"/>`;
+    svg += `<line x1="${cx}" y1="${cy}" x2="${mx}" y2="${my}" stroke="${color}" stroke-width="2.5" opacity="0.4"/>`;
 
     const minors = lc[major] || [];
-    const totalSpread = Math.min(1.9, GAP_ANGLE * Math.max(minors.length - 1, 0));
+    const totalSpread = minors.length > 1 ? Math.min(maxSpread, GAP_ANGLE * (minors.length - 1)) : 0;
     minors.forEach((minor, j) => {
       const mAngle = angle + (minors.length > 1 ? (j - (minors.length - 1) / 2) * (totalSpread / (minors.length - 1)) : 0);
-      const radius = R2 + (j % 2 === 1 ? 20 : 0);
+      const radius = R2 + (j % 2 === 1 ? 26 : 0);
       const nx = cx + Math.cos(mAngle) * radius, ny = cy + Math.sin(mAngle) * radius;
       const mc = countFor(major, minor);
-      const nr = Math.min(18, 8 + Math.sqrt(mc) * 3.2);
-      const labelY = ny + (Math.sin(mAngle) >= 0 ? nr + 11 : -nr - 7);
-      svg += `<line x1="${mx}" y1="${my}" x2="${nx}" y2="${ny}" stroke="${color}" stroke-width="1.5" opacity="0.35"/>`;
-      svg += `<g class="mm-node" data-major="${escapeHtml(major)}" data-minor="${escapeHtml(minor)}" style="cursor:pointer;">
+      const nr = Math.min(16, 8 + Math.sqrt(mc) * 3);
+      const labelY = ny + (Math.sin(mAngle) >= 0 ? nr + 12 : -nr - 8);
+      svg += `<line x1="${mx}" y1="${my}" x2="${nx}" y2="${ny}" stroke="${color}" stroke-width="1.5" opacity="0.32"/>`;
+      svg += `<g class="mm-node" data-major="${escapeHtml(major)}" data-minor="${escapeHtml(minor)}">
         <circle cx="${nx}" cy="${ny}" r="${nr}" fill="#fff" stroke="${color}" stroke-width="2"/>
-        <text x="${nx}" y="${labelY}" text-anchor="middle" font-size="9" fill="#8A7565" font-family="'Zen Kaku Gothic New'">${escapeHtml(minor)}</text>
+        <text x="${nx}" y="${labelY}" text-anchor="middle" font-size="9.5" fill="#8A7565" font-family="'Zen Kaku Gothic New'">${escapeHtml(minor)}</text>
       </g>`;
     });
 
-    svg += `<g class="mm-node" data-major="${escapeHtml(major)}" data-minor="" style="cursor:pointer;">
+    // 大カテゴリーのラベルは円の外側（下）に配置し、円と文字が重ならないようにする
+    const majorLabelY = my + (Math.sin(angle) >= 0 ? r + 15 : -r - 9);
+    svg += `<g class="mm-node" data-major="${escapeHtml(major)}" data-minor="">
       <circle cx="${mx}" cy="${my}" r="${r}" fill="${selected ? color : '#fff'}" stroke="${color}" stroke-width="3"/>
-      <text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${selected ? '#fff' : '#4A3728'}" font-family="'Zen Maru Gothic'">${escapeHtml(major)}</text>
+      <text x="${mx}" y="${majorLabelY}" text-anchor="middle" font-size="12" font-weight="700" fill="${selected ? color : '#4A3728'}" font-family="'Zen Maru Gothic'">${escapeHtml(major)}</text>
     </g>`;
   });
 
@@ -1254,15 +1307,12 @@ function renderMyLifeTab() {
   svg += `<text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="13" font-weight="700" fill="#fff" font-family="'Zen Maru Gothic'">自分</text>`;
   svg += `</svg>`;
   $('#mindmapSvgWrap').innerHTML = svg;
-
-  $$('.mm-node', $('#mindmapSvgWrap')).forEach(node => {
-    node.onclick = () => {
-      mindmapSelectedMajor = node.dataset.major;
-      notebookFilterMajor = node.dataset.major;
-      notebookFilterMinor = node.dataset.minor || null;
-      renderMyLifeTab();
-      renderMindmapFilteredList();
-    };
+  initMindmapPanZoom(W, H, (major, minor) => {
+    mindmapSelectedMajor = major;
+    notebookFilterMajor = major;
+    notebookFilterMinor = minor || null;
+    renderMyLifeTab();
+    renderMindmapFilteredList();
   });
 
   // サマリー
@@ -1277,6 +1327,107 @@ function renderMyLifeTab() {
   `;
   renderMindmapFilteredList();
 }
+/* ---------------- マインドマップのパン・ピンチズーム制御 ---------------- */
+function initMindmapPanZoom(W, H, onNodeTap) {
+  const viewport = $('#mindmapViewport');
+  const canvas = $('#mindmapSvgWrap');
+  if (!viewport) return;
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  const baseScale = Math.min(vw / W, vh / H);
+  const minScale = baseScale * 0.6;
+  const maxScale = baseScale * 4;
+
+  let sameCanvas = mmTransform && mmTransform.w === W && mmTransform.h === H;
+  let scale = sameCanvas ? mmTransform.scale : baseScale;
+  let tx = sameCanvas ? mmTransform.tx : (vw - W * scale) / 2;
+  let ty = sameCanvas ? mmTransform.ty : (vh - H * scale) / 2;
+
+  function apply() {
+    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    mmTransform = { scale, tx, ty, w: W, h: H };
+  }
+  apply();
+
+  const pointers = new Map();
+  let dragging = false, dragStart = null;
+  let lastDist = null;
+  let downNode = null, downX = 0, downY = 0, moved = false;
+
+  const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+  const mid = (p1, p2) => ({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
+
+  viewport.onpointerdown = (e) => {
+    viewport.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) {
+      dragging = true;
+      dragStart = { x: e.clientX - tx, y: e.clientY - ty };
+      downNode = e.target.closest('.mm-node');
+      downX = e.clientX; downY = e.clientY; moved = false;
+    } else if (pointers.size === 2) {
+      dragging = false;
+      const pts = Array.from(pointers.values());
+      lastDist = dist(pts[0], pts[1]);
+    }
+  };
+  viewport.onpointermove = (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1 && dragging) {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) moved = true;
+      tx = e.clientX - dragStart.x;
+      ty = e.clientY - dragStart.y;
+      apply();
+    } else if (pointers.size === 2) {
+      const pts = Array.from(pointers.values());
+      const d = dist(pts[0], pts[1]);
+      const m = mid(pts[0], pts[1]);
+      if (lastDist) {
+        const rect = viewport.getBoundingClientRect();
+        const newScale = Math.min(maxScale, Math.max(minScale, scale * (d / lastDist)));
+        const localX = (m.x - rect.left - tx) / scale;
+        const localY = (m.y - rect.top - ty) / scale;
+        tx = (m.x - rect.left) - localX * newScale;
+        ty = (m.y - rect.top) - localY * newScale;
+        scale = newScale;
+        apply();
+      }
+      lastDist = d;
+    }
+  };
+  function endPointer(e) {
+    if (pointers.size === 1 && !moved && downNode && onNodeTap) {
+      onNodeTap(downNode.dataset.major, downNode.dataset.minor || '');
+    }
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) lastDist = null;
+    if (pointers.size === 0) { dragging = false; downNode = null; }
+  }
+  viewport.onpointerup = endPointer;
+  viewport.onpointercancel = endPointer;
+  viewport.onpointerleave = endPointer;
+
+  viewport.onwheel = (e) => {
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const newScale = Math.min(maxScale, Math.max(minScale, scale * factor));
+    const localX = (e.clientX - rect.left - tx) / scale;
+    const localY = (e.clientY - rect.top - ty) / scale;
+    tx = (e.clientX - rect.left) - localX * newScale;
+    ty = (e.clientY - rect.top) - localY * newScale;
+    scale = newScale;
+    apply();
+  };
+
+  $('#mmZoomIn').onclick = () => { scale = Math.min(maxScale, scale * 1.25); apply(); };
+  $('#mmZoomOut').onclick = () => { scale = Math.max(minScale, scale / 1.25); apply(); };
+  $('#mmZoomReset').onclick = () => {
+    scale = baseScale; tx = (vw - W * scale) / 2; ty = (vh - H * scale) / 2; apply();
+  };
+}
+
+
 function renderMindmapFilteredList() {
   const wrap = $('#mylifeFilteredList');
   if (!mindmapSelectedMajor) { wrap.innerHTML = ''; return; }
@@ -1676,6 +1827,7 @@ function initEvents() {
 
   $('#calendarBtn').onclick = openCalendarModal;
   $('#settingsBtn').onclick = () => openSettingsScreen();
+  $('#treeWidgetBtn').onclick = openTreeCollection;
   $('#modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
 
   $('#fab').onclick = () => {
