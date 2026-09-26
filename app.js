@@ -756,7 +756,7 @@ function openNotebookEditForm(entry) {
           <input type="date" class="h-date" value="${h.date}">
           ${historyDraft.length > 1 ? `<button type="button" class="icon-btn-sm danger h-delete" aria-label="この記録を削除"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>` : ''}
         </div>
-        <textarea class="form-textarea h-content" style="min-height:70px;">${escapeHtml(h.content)}</textarea>
+        <textarea class="form-textarea h-content" style="min-height:150px;">${escapeHtml(h.content)}</textarea>
       </div>`).join('');
     $$('#f_history .edit-history-item').forEach(row => {
       const i = parseInt(row.dataset.i);
